@@ -1,3 +1,7 @@
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update libultrahdr
+# For more info, check https://cs.android.com/android/platform/superproject/+/main:tools/external_updater/README.md
+
 name: "libultrahdr"
 description: "Android fork of the libultrahdr library."
 third_party {
@@ -5,11 +9,11 @@ third_party {
     type: GIT
     value: "https://github.com/google/libultrahdr.git"
   }
-  version: "06a67f6a532b6b6326675e431f914fab21c51528"
+  version: "14849e395741d01326bd68deb785da912b88cbd1"
   license_type: NOTICE
   last_upgrade_date {
     year: 2023
     month: 11
-    day: 28
+    day: 29
   }
 }
