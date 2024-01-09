@@ -558,13 +558,13 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
-  std::vector<uint8_t> icc;
-  decoder.getCompressedImageParameters(yuv420jpg_image_ptr->data, yuv420jpg_image_ptr->length,
-                                       /* pWidth */ nullptr, /* pHeight */ nullptr, &icc,
-                                       /* exifData */ nullptr);
+  if (!decoder.getCompressedImageParameters(yuv420jpg_image_ptr->data,
+                                            yuv420jpg_image_ptr->length)) {
+    return ERROR_JPEGR_DECODE_ERROR;
+  }
 
   // Add ICC if not already present.
-  if (icc.size() > 0) {
+  if (decoder.getICCSize() > 0) {
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
                               /* icc */ nullptr, /* icc size */ 0, metadata, dest));
   } else {
@@ -577,12 +577,12 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   return JPEGR_NO_ERROR;
 }
 
-status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg_image_info_ptr) {
+status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr) {
   if (jpegr_image_ptr == nullptr || jpegr_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpegr image");
     return ERROR_JPEGR_BAD_PTR;
   }
-  if (jpeg_image_info_ptr == nullptr) {
+  if (jpegr_image_info_ptr == nullptr) {
     ALOGE("received nullptr for compressed jpegr info struct");
     return ERROR_JPEGR_BAD_PTR;
   }
@@ -592,13 +592,16 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
   if (status != JPEGR_NO_ERROR && status != ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
     return status;
   }
-
-  JpegDecoderHelper jpeg_dec_obj_hdr;
-  if (!jpeg_dec_obj_hdr.getCompressedImageParameters(
-          primary_image.data, primary_image.length, &jpeg_image_info_ptr->width,
-          &jpeg_image_info_ptr->height, jpeg_image_info_ptr->iccData,
-          jpeg_image_info_ptr->exifData)) {
-    return ERROR_JPEGR_DECODE_ERROR;
+  status = parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
+                         &jpegr_image_info_ptr->width, &jpegr_image_info_ptr->height);
+  if (status != JPEGR_NO_ERROR) {
+    return status;
+  }
+  if (jpegr_image_info_ptr->gainmapImgInfo != nullptr) {
+    status = parseJpegInfo(&gainmap_image, jpegr_image_info_ptr->gainmapImgInfo);
+    if (status != JPEGR_NO_ERROR) {
+      return status;
+    }
   }
 
   return status;
@@ -641,8 +644,9 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   JpegDecoderHelper jpeg_dec_obj_yuv420;
-  if (!jpeg_dec_obj_yuv420.decompressImage(primary_jpeg_image.data, primary_jpeg_image.length,
-                                           (output_format == ULTRAHDR_OUTPUT_SDR))) {
+  if (!jpeg_dec_obj_yuv420.decompressImage(
+          primary_jpeg_image.data, primary_jpeg_image.length,
+          (output_format == ULTRAHDR_OUTPUT_SDR) ? DECODE_TO_RGBA : DECODE_TO_YCBCR)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
 
@@ -1010,29 +1014,39 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  // TODO: remove once map scaling factor is computed based on actual map dims
-  size_t image_width = yuv420_image_ptr->width;
-  size_t image_height = yuv420_image_ptr->height;
-  size_t map_width = image_width / kMapDimensionScaleFactor;
-  size_t map_height = image_height / kMapDimensionScaleFactor;
-  if (map_width != gainmap_image_ptr->width || map_height != gainmap_image_ptr->height) {
+  if (yuv420_image_ptr->width % gainmap_image_ptr->width != 0 ||
+      yuv420_image_ptr->height % gainmap_image_ptr->height != 0) {
     ALOGE(
-        "gain map dimensions and primary image dimensions are not to scale, computed gain map "
-        "resolution is %zux%zu, received gain map resolution is %zux%zu",
-        map_width, map_height, gainmap_image_ptr->width, gainmap_image_ptr->height);
-    return ERROR_JPEGR_RESOLUTION_MISMATCH;
+        "gain map dimensions scale factor value is not an integer, primary image resolution is "
+        "%zux%zu, received gain map resolution is %zux%zu",
+        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+        gainmap_image_ptr->height);
+    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
   }
+
+  if (yuv420_image_ptr->width * gainmap_image_ptr->height !=
+      yuv420_image_ptr->height * gainmap_image_ptr->width) {
+    ALOGE(
+        "gain map dimensions scale factor values for height and width are different, \n primary "
+        "image resolution is %zux%zu, received gain map resolution is %zux%zu",
+        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+        gainmap_image_ptr->height);
+    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+  }
+  // TODO: Currently map_scale_factor is of type size_t, but it could be changed to a float
+  // later.
+  size_t map_scale_factor = yuv420_image_ptr->width / gainmap_image_ptr->width;
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
-  ShepardsIDW idwTable(kMapDimensionScaleFactor);
+  ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
 
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [yuv420_image_ptr, gainmap_image_ptr, dest, &jobQueue,
-                                       &idwTable, output_format, &gainLUT,
-                                       display_boost]() -> void {
+                                       &idwTable, output_format, &gainLUT, display_boost,
+                                       map_scale_factor]() -> void {
     size_t width = yuv420_image_ptr->width;
 
     size_t rowStart, rowEnd;
@@ -1049,11 +1063,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
           float gain;
-          // TODO: determine map scaling factor based on actual map dims
-          size_t map_scale_factor = kMapDimensionScaleFactor;
           // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-          // Currently map_scale_factor is of type size_t, but it could be changed to a float
-          // later.
           if (map_scale_factor != floorf(map_scale_factor)) {
             gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
           } else {
@@ -1110,7 +1120,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   for (int th = 0; th < threads - 1; th++) {
     workers.push_back(std::thread(applyRecMap));
   }
-  const int rowStep = threads == 1 ? yuv420_image_ptr->height : kJobSzInRows;
+  const int rowStep = threads == 1 ? yuv420_image_ptr->height : map_scale_factor;
   for (size_t rowStart = 0; rowStart < yuv420_image_ptr->height;) {
     int rowEnd = (std::min)(rowStart + rowStep, yuv420_image_ptr->height);
     jobQueue.enqueueJob(rowStart, rowEnd);
@@ -1174,6 +1184,45 @@ status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
           (int)image_ranges.size());
   }
 
+  return JPEGR_NO_ERROR;
+}
+
+status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
+                              size_t* img_width, size_t* img_height) {
+  JpegDecoderHelper jpeg_dec_obj;
+  if (!jpeg_dec_obj.getCompressedImageParameters(jpeg_image_ptr->data, jpeg_image_ptr->length)) {
+    return ERROR_JPEGR_DECODE_ERROR;
+  }
+  size_t imgWidth, imgHeight;
+  imgWidth = jpeg_dec_obj.getDecompressedImageWidth();
+  imgHeight = jpeg_dec_obj.getDecompressedImageHeight();
+
+  if (jpeg_image_info_ptr != nullptr) {
+    jpeg_image_info_ptr->width = imgWidth;
+    jpeg_image_info_ptr->height = imgHeight;
+    jpeg_image_info_ptr->imgData.resize(jpeg_image_ptr->length, 0);
+    memcpy(static_cast<void*>(jpeg_image_info_ptr->imgData.data()), jpeg_image_ptr->data,
+           jpeg_image_ptr->length);
+    if (jpeg_dec_obj.getICCSize() != 0) {
+      jpeg_image_info_ptr->iccData.resize(jpeg_dec_obj.getICCSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->iccData.data()), jpeg_dec_obj.getICCPtr(),
+             jpeg_dec_obj.getICCSize());
+    }
+    if (jpeg_dec_obj.getEXIFSize() != 0) {
+      jpeg_image_info_ptr->exifData.resize(jpeg_dec_obj.getEXIFSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->exifData.data()), jpeg_dec_obj.getEXIFPtr(),
+             jpeg_dec_obj.getEXIFSize());
+    }
+    if (jpeg_dec_obj.getXMPSize() != 0) {
+      jpeg_image_info_ptr->xmpData.resize(jpeg_dec_obj.getXMPSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->xmpData.data()), jpeg_dec_obj.getXMPPtr(),
+             jpeg_dec_obj.getXMPSize());
+    }
+  }
+  if (img_width != nullptr && img_height != nullptr) {
+    *img_width = imgWidth;
+    *img_height = imgHeight;
+  }
   return JPEGR_NO_ERROR;
 }
 
