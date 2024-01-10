@@ -5,15 +5,15 @@
 name: "libultrahdr"
 description: "Android fork of the libultrahdr library."
 third_party {
-  url {
-    type: GIT
-    value: "https://github.com/google/libultrahdr.git"
-  }
-  version: "14849e395741d01326bd68deb785da912b88cbd1"
   license_type: NOTICE
   last_upgrade_date {
-    year: 2023
-    month: 11
-    day: 29
+    year: 2024
+    month: 1
+    day: 9
+  }
+  identifier {
+    type: "Git"
+    value: "https://github.com/google/libultrahdr.git"
+    version: "3f9c0ec5590c2fa47b78a8bc125ca5e6b27e5728"
   }
 }
