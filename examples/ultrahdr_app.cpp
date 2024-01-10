@@ -367,7 +367,7 @@ bool UltraHdrAppInput::decode() {
   if (mMode == 1 && !fillJpegRImageHandle()) return false;
   std::vector<uint8_t> iccData(0);
   std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   JpegR jpegHdr;
   status_t status = jpegHdr.getJPEGRInfo(&mJpegImgR, &info);
   if (JPEGR_NO_ERROR == status) {
@@ -839,7 +839,7 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
 
 static void usage(const char* name) {
   fprintf(stderr, "\n## ultra hdr demo application.\nUsage : %s \n", name);
-  fprintf(stderr, "    -m    mode of operation. [0: encode, 1:decode] \n");
+  fprintf(stderr, "    -m    mode of operation. [0:encode, 1:decode] \n");
   fprintf(stderr, "\n## encoder options : \n");
   fprintf(stderr, "    -p    raw 10 bit input resource in p010 color format, mandatory. \n");
   fprintf(stderr,
@@ -855,7 +855,7 @@ static void usage(const char* name) {
           "    -q    quality factor to be used while encoding 8 bit image, optional. [0-100].\n"
           "          gain map image does not use this quality factor. \n"
           "          for now gain map image quality factor is not configurable. \n");
-  fprintf(stderr, "    -e    compute psnr, optional. [0:yes, 1:no] \n");
+  fprintf(stderr, "    -e    compute psnr, optional. [0:no, 1:yes] \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr input resource, mandatory in decode mode. \n");
   fprintf(stderr,
