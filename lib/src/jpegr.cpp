@@ -504,7 +504,25 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   yuv420_image.data = jpeg_dec_obj_yuv420.getDecompressedImagePtr();
   yuv420_image.width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
-  yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
+  if (jpeg_dec_obj_yuv420.getICCSize() > 0) {
+    ultrahdr_color_gamut cg = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
+                                                           jpeg_dec_obj_yuv420.getICCSize());
+    if (cg == ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        (yuv420jpg_image_ptr->colorGamut != ULTRAHDR_COLORGAMUT_UNSPECIFIED &&
+         yuv420jpg_image_ptr->colorGamut != cg)) {
+      ALOGE("configured color gamut  %d does not match with color gamut specified in icc box %d",
+            yuv420jpg_image_ptr->colorGamut, cg);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
+    yuv420_image.colorGamut = cg;
+  } else {
+    if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
+      ALOGE("Unrecognized 420 color gamut %d", yuv420jpg_image_ptr->colorGamut);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
+    yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
+  }
   if (yuv420_image.luma_stride == 0) yuv420_image.luma_stride = yuv420_image.width;
   if (!yuv420_image.chroma_data) {
     uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
@@ -568,6 +586,11 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
                               /* icc */ nullptr, /* icc size */ 0, metadata, dest));
   } else {
+    if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
+      ALOGE("Unrecognized 420 color gamut %d", yuv420jpg_image_ptr->colorGamut);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, yuv420jpg_image_ptr->colorGamut);
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
@@ -589,7 +612,7 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
 
   jpegr_compressed_struct primary_image, gainmap_image;
   status_t status = extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_image, &gainmap_image);
-  if (status != JPEGR_NO_ERROR && status != ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
+  if (status != JPEGR_NO_ERROR) {
     return status;
   }
   status = parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
@@ -628,6 +651,10 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     ALOGE("received nullptr address for exif data");
     return ERROR_JPEGR_BAD_PTR;
   }
+  if (gainmap_image_ptr != nullptr && gainmap_image_ptr->data == nullptr) {
+    ALOGE("received nullptr address for gainmap data");
+    return ERROR_JPEGR_BAD_PTR;
+  }
   if (output_format <= ULTRAHDR_OUTPUT_UNSPECIFIED || output_format > ULTRAHDR_OUTPUT_MAX) {
     ALOGE("received bad value for output format %d", output_format);
     return ERROR_JPEGR_INVALID_OUTPUT_FORMAT;
@@ -637,10 +664,8 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   status_t status =
       extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_jpeg_image, &gainmap_jpeg_image);
   if (status != JPEGR_NO_ERROR) {
-    if (output_format != ULTRAHDR_OUTPUT_SDR || status != ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
-      ALOGE("received invalid compressed jpegr image");
-      return status;
-    }
+    ALOGE("received invalid compressed jpegr image");
+    return status;
   }
 
   JpegDecoderHelper jpeg_dec_obj_yuv420;
@@ -651,11 +676,19 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   if (output_format == ULTRAHDR_OUTPUT_SDR) {
+#ifdef JCS_ALPHA_EXTENSIONS
     if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
          jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 4) >
         jpeg_dec_obj_yuv420.getDecompressedImageSize()) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
+#else
+    if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
+         jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 3) >
+        jpeg_dec_obj_yuv420.getDecompressedImageSize()) {
+      return ERROR_JPEGR_DECODE_ERROR;
+    }
+#endif
   } else {
     if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
          jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 3 / 2) >
@@ -665,9 +698,6 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   if (exif != nullptr) {
-    if (exif->data == nullptr) {
-      return ERROR_JPEGR_BAD_PTR;
-    }
     if (exif->length < jpeg_dec_obj_yuv420.getEXIFSize()) {
       return ERROR_JPEGR_BUFFER_TOO_SMALL;
     }
@@ -675,51 +705,65 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     exif->length = jpeg_dec_obj_yuv420.getEXIFSize();
   }
 
-  if (output_format == ULTRAHDR_OUTPUT_SDR) {
-    dest->width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
-    dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
-    memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
-           dest->width * dest->height * 4);
-    return JPEGR_NO_ERROR;
-  }
-
   JpegDecoderHelper jpeg_dec_obj_gm;
-  if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length)) {
-    return ERROR_JPEGR_DECODE_ERROR;
-  }
-  if ((jpeg_dec_obj_gm.getDecompressedImageWidth() * jpeg_dec_obj_gm.getDecompressedImageHeight()) >
-      jpeg_dec_obj_gm.getDecompressedImageSize()) {
-    return ERROR_JPEGR_DECODE_ERROR;
-  }
-
   jpegr_uncompressed_struct gainmap_image;
-  gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
-  gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
-  gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();
+  if (gainmap_image_ptr != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
+    if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length)) {
+      return ERROR_JPEGR_DECODE_ERROR;
+    }
+    if ((jpeg_dec_obj_gm.getDecompressedImageWidth() *
+         jpeg_dec_obj_gm.getDecompressedImageHeight()) >
+        jpeg_dec_obj_gm.getDecompressedImageSize()) {
+      return ERROR_JPEGR_DECODE_ERROR;
+    }
+    gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
+    gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
+    gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();
 
-  if (gainmap_image_ptr != nullptr) {
-    gainmap_image_ptr->width = gainmap_image.width;
-    gainmap_image_ptr->height = gainmap_image.height;
-    int size = gainmap_image_ptr->width * gainmap_image_ptr->height;
-    gainmap_image_ptr->data = malloc(size);
-    memcpy(gainmap_image_ptr->data, gainmap_image.data, size);
+    if (gainmap_image_ptr != nullptr) {
+      gainmap_image_ptr->width = gainmap_image.width;
+      gainmap_image_ptr->height = gainmap_image.height;
+      memcpy(gainmap_image_ptr->data, gainmap_image.data,
+             gainmap_image_ptr->width * gainmap_image_ptr->height);
+    }
   }
 
   ultrahdr_metadata_struct uhdr_metadata;
-  if (!getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
-                          jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata)) {
-    return ERROR_JPEGR_METADATA_ERROR;
+  if (metadata != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
+    if (!getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
+                            jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata)) {
+      return ERROR_JPEGR_METADATA_ERROR;
+    }
+    if (metadata != nullptr) {
+      metadata->version = uhdr_metadata.version;
+      metadata->minContentBoost = uhdr_metadata.minContentBoost;
+      metadata->maxContentBoost = uhdr_metadata.maxContentBoost;
+      metadata->gamma = uhdr_metadata.gamma;
+      metadata->offsetSdr = uhdr_metadata.offsetSdr;
+      metadata->offsetHdr = uhdr_metadata.offsetHdr;
+      metadata->hdrCapacityMin = uhdr_metadata.hdrCapacityMin;
+      metadata->hdrCapacityMax = uhdr_metadata.hdrCapacityMax;
+    }
   }
 
-  if (metadata != nullptr) {
-    metadata->version = uhdr_metadata.version;
-    metadata->minContentBoost = uhdr_metadata.minContentBoost;
-    metadata->maxContentBoost = uhdr_metadata.maxContentBoost;
-    metadata->gamma = uhdr_metadata.gamma;
-    metadata->offsetSdr = uhdr_metadata.offsetSdr;
-    metadata->offsetHdr = uhdr_metadata.offsetHdr;
-    metadata->hdrCapacityMin = uhdr_metadata.hdrCapacityMin;
-    metadata->hdrCapacityMax = uhdr_metadata.hdrCapacityMax;
+  if (output_format == ULTRAHDR_OUTPUT_SDR) {
+    dest->width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
+    dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
+#ifdef JCS_ALPHA_EXTENSIONS
+    memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
+           dest->width * dest->height * 4);
+#else
+    uint32_t* pixelDst = static_cast<uint32_t*>(dest->data);
+    uint8_t* pixelSrc = static_cast<uint8_t*>(jpeg_dec_obj_yuv420.getDecompressedImagePtr());
+    for (int i = 0; i < dest->width * dest->height; i++) {
+      *pixelDst = pixelSrc[0] | (pixelSrc[1] << 8) | (pixelSrc[2] << 16) | (0xff << 24);
+      pixelSrc += 3;
+      pixelDst += 1;
+    }
+#endif
+    dest->colorGamut = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
+                                                    jpeg_dec_obj_yuv420.getICCSize());
+    return JPEGR_NO_ERROR;
   }
 
   jpegr_uncompressed_struct yuv420_image;
@@ -1039,6 +1083,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
+  dest->colorGamut = yuv420_image_ptr->colorGamut;
   ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
