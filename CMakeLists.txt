@@ -16,12 +16,14 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(UltraHdr C CXX)
+project(libuhdr VERSION 1.0 LANGUAGES C CXX
+        DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
 # Detect system
 ###########################################################
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 elseif(WIN32)
 elseif(APPLE)
 else()
@@ -49,12 +51,13 @@ endif()
 ###########################################################
 # Directories
 ###########################################################
-set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/lib)
-set(THIRD_PARTY_DIR ${CMAKE_SOURCE_DIR}/third_party)
-set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
-set(BENCHMARK_DIR ${CMAKE_SOURCE_DIR}/benchmark)
-set(FUZZERS_DIR ${CMAKE_SOURCE_DIR}/fuzzer)
-set(EXAMPLES_DIR ${CMAKE_SOURCE_DIR}/examples)
+set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+set(TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+set(BENCHMARK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/benchmark)
+set(FUZZERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fuzzer)
+set(EXAMPLES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+set(EXPORT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
   message(WARNING "Selected in-source build. Preferably, create a build/ directory and build from there.")
@@ -81,10 +84,30 @@ option_if_not_defined(UHDR_BUILD_EXAMPLES "Build examples " TRUE)
 option_if_not_defined(UHDR_BUILD_TESTS "Build unit tests " FALSE)
 option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
 option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
+option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed packages " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
+option_if_not_defined(UHDR_ENABLE_INSTALL "Add install target for ultrahdr package" TRUE)
 
 if(UHDR_BUILD_BENCHMARK AND WIN32)
   message(FATAL_ERROR "Building benchmarks on current platform not supported")
+endif()
+
+# side effects
+if(UHDR_BUILD_FUZZERS OR UHDR_BUILD_DEPS)
+  set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont enable install/uninstall targets
+  set(UHDR_BUILD_DEPS TRUE) # for fuzz testing its best to build all dependencies from source.
+                            # This is to instrument dependencies libs as well
+endif()
+
+if(UHDR_ENABLE_INSTALL)
+  set(UHDR_BUILD_FUZZERS FALSE) # dont instrument any code
+  set(UHDR_BUILD_DEPS FALSE) # use pre-builts for portability
+  set(UHDR_ENABLE_LOGS FALSE) # no verbose logs
+endif()
+
+if(EMSCRIPTEN)
+  set(UHDR_BUILD_DEPS TRUE) # not using -s USE_LIBJPEG=1, building it ourself
+  set(UHDR_ENABLE_INSTALL FALSE) # not providing install/uninstall targets in emscripten builds?
 endif()
 
 ###########################################################
@@ -93,6 +116,19 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(NOT EMSCRIPTEN)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
+include(CheckCXXCompilerFlag)
+function(CheckCompilerOption opt res)
+  set(CMAKE_REQUIRED_FLAGS ${opt})
+  check_cxx_compiler_flag(${opt} ${res})
+  unset(CMAKE_REQUIRED_FLAGS)
+  if(NOT ${res})
+    message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
+  endif()
+endfunction(CheckCompilerOption)
 
 if(MSVC)
   if(DEFINED UHDR_SANITIZE_OPTIONS)
@@ -101,26 +137,30 @@ if(MSVC)
   if(UHDR_BUILD_FUZZERS)
     message(FATAL_ERROR "Building fuzzers not supported in MSVC path")
   endif()
-  foreach(flag_var
-          CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-          CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-          CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-          CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-    if(${flag_var} MATCHES "/MD")
-      string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-    endif()
-    if (${flag_var} MATCHES "/MDd")
-      string(REGEX REPLACE "/MDd" "/MTd" ${flag_var} "${${flag_var}}")
-    endif()
-  endforeach()
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   # Disable specific warnings
-  # TODO: None of these should be disabled, but for now,for a warning-free msvc build these are
+  # TODO: None of these should be disabled, but for now, for a warning-free msvc build these are
   # added. fix the warnings and remove these filters
   add_compile_options(/wd4244) # conversion from 'type1' to 'type2', possible loss of data
   add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
   add_compile_options(/wd4305) # truncation from 'double' to 'float'
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
+  add_compile_options(/wd26812) # Prefer enum class over enum
+elseif(EMSCRIPTEN)
+  if(UHDR_BUILD_TESTS)
+    message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_BENCHMARK)
+    message(FATAL_ERROR "Building benchmark not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_FUZZERS)
+    message(FATAL_ERROR "Building fuzzers not supported in Web Assembly Path")
+  endif()
+  if(DEFINED UHDR_SANITIZE_OPTIONS)
+    CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
+    add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+    add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -135,16 +175,6 @@ else()
     add_compile_options(-march=x86-64)
     add_compile_options(-mtune=generic)
   endif()
-
-  include(CheckCXXCompilerFlag)
-  function(CheckCompilerOption opt res)
-    set(CMAKE_REQUIRED_FLAGS ${opt})
-    check_cxx_compiler_flag(${opt} ${res})
-    unset(CMAKE_REQUIRED_FLAGS)
-    if(NOT ${res})
-      message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
-    endif()
-  endfunction(CheckCompilerOption)
 
   if(DEFINED UHDR_SANITIZE_OPTIONS)
     CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
@@ -163,6 +193,34 @@ if(UHDR_ENABLE_LOGS)
 endif()
 
 ###########################################################
+# Utils
+###########################################################
+# copied from https://github.com/google/shaderc/blob/main/cmake/utils.cmake
+macro(get_transitive_static_libs target out_list)
+  if(TARGET ${target})
+    get_target_property(target_type ${target} TYPE)
+    if(target_type STREQUAL "STATIC_LIBRARY")
+      list(INSERT ${out_list} 0 ${target})
+      get_target_property(libs ${target} LINK_LIBRARIES)
+      if(libs)
+        foreach(lib ${libs})
+          get_transitive_static_libs(${lib} ${out_list})
+        endforeach()
+      endif()
+    endif()
+  endif()
+endmacro()
+
+# combine a list of static libraries in to a single library
+function(combine_static_libs target output_target)
+  set(all_libs_list "")
+  get_transitive_static_libs(${target} all_libs_list)
+  foreach(lib IN LISTS all_libs_list)
+    target_sources(${output_target} PRIVATE $<TARGET_OBJECTS:${lib}>)
+  endforeach()
+endfunction()
+
+###########################################################
 # Dependencies
 ###########################################################
 
@@ -179,65 +237,93 @@ set(UHDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 set(UHDR_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 
 # libjpeg-turbo
-set(JPEG_INCLUDE_DIRS
-    ${THIRD_PARTY_DIR}/libjpeg-turbo/
-    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build)
-
-if(IS_MULTI)
-  set(JPEG_LIBRARIES
-      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/$<CONFIG>/jpeg-static.lib)
+if(UHDR_ENABLE_INSTALL)
+  find_package(JPEG REQUIRED)
 else()
-  if(MSVC)
-    set(JPEG_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/jpeg-static.lib)
-  else()
-    set(JPEG_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
+  if(NOT UHDR_BUILD_DEPS)
+    find_package(JPEG)
   endif()
 endif()
 
-ExternalProject_Add(libjpeg-turbo
-    GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-    GIT_TAG 3.0.1
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
-    SOURCE_DIR ${THIRD_PARTY_DIR}/libjpeg-turbo
-    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
-    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-               -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-               -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
-               -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
-               -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
-               -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
-               -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
-    BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
-    INSTALL_COMMAND ""
-)
+if(NOT JPEG_FOUND)
+  set(JPEGTURBO_TARGET_NAME turbojpeg)
+  set(JPEGTURBO_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${JPEGTURBO_TARGET_NAME})
+  set(JPEGTURBO_SOURCE_DIR ${THIRD_PARTY_DIR}/${JPEGTURBO_TARGET_NAME})
+  set(JPEGTURBO_BINARY_DIR ${JPEGTURBO_PREFIX_DIR}/src/${JPEGTURBO_TARGET_NAME}-build)
+  set(JPEG_INCLUDE_DIRS ${JPEGTURBO_SOURCE_DIR} ${JPEGTURBO_BINARY_DIR})
+  if(MSVC)
+    set(JPEG_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}jpeg-static${CMAKE_STATIC_LIBRARY_SUFFIX})
+  else()
+    set(JPEG_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}jpeg${CMAKE_STATIC_LIBRARY_SUFFIX})
+  endif()
+  if(IS_MULTI)
+    set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/$<CONFIG>/)
+  else()
+    set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/)
+  endif()
+  set(JPEG_LIBRARIES ${JPEG_LIB_PREFIX}${JPEG_LIB})
+  if(EMSCRIPTEN)
+    ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+        GIT_TAG 3.0.1
+        PREFIX ${JPEGTURBO_PREFIX_DIR}
+        SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+        BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+        CONFIGURE_COMMAND emcmake cmake ${JPEGTURBO_SOURCE_DIR}
+                          -DENABLE_SHARED=0 -DWITH_SIMD=0
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+        BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+        INSTALL_COMMAND ""
+    )
+  else()
+    ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+        GIT_TAG 3.0.1
+        PREFIX ${JPEGTURBO_PREFIX_DIR}
+        SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+        BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                   -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+                   -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
+                   -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
+                   -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
+                   -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
+                   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                   -DENABLE_SHARED=0
+        BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+        INSTALL_COMMAND ""
+    )
+  endif()
+endif()
 
 if(UHDR_BUILD_TESTS)
   # gtest and gmock
+  set(GTEST_TARGET_NAME googletest)
+  set(GTEST_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GTEST_TARGET_NAME})
+  set(GTEST_SOURCE_DIR ${THIRD_PARTY_DIR}/${GTEST_TARGET_NAME})
+  set(GTEST_BINARY_DIR ${GTEST_PREFIX_DIR}/src/${GTEST_TARGET_NAME}-build)
   set(GTEST_INCLUDE_DIRS
-      ${THIRD_PARTY_DIR}/googletest/googletest/include
-      ${THIRD_PARTY_DIR}/googletest/googlemock/include)
+      ${GTEST_SOURCE_DIR}/googletest/include
+      ${GTEST_SOURCE_DIR}/googlemock/include)
+  set(GTEST_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(GTEST_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}gtest_main${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(IS_MULTI)
-    set(GTEST_BOTH_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest.lib
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest_main.lib)
+    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/$<CONFIG>/)
   else()
-    if(MSVC)
-      set(GTEST_BOTH_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest.lib
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest_main.lib)
-    else()
-      set(GTEST_BOTH_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
-    endif()
+    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/)
   endif()
-  ExternalProject_Add(googletest
+  set(GTEST_BOTH_LIBRARIES ${GTEST_LIB_PREFIX}${GTEST_LIB} ${GTEST_LIB_PREFIX}${GTEST_LIB_MAIN})
+  if(MSVC)
+    set(MSVC_ARGS "-Dgtest_force_shared_crt=ON")
+  endif()
+  ExternalProject_Add(${GTEST_TARGET_NAME}
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.14.0
-      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
-      SOURCE_DIR ${THIRD_PARTY_DIR}/googletest
+      PREFIX ${GTEST_PREFIX_DIR}
+      SOURCE_DIR ${GTEST_SOURCE_DIR}
+      BINARY_DIR ${GTEST_BINARY_DIR}
       CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                  -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
@@ -245,6 +331,8 @@ if(UHDR_BUILD_TESTS)
                  -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}
                  -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL}
                  -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
+                 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                 ${MSVC_ARGS}
       BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
       INSTALL_COMMAND ""
   )
@@ -252,27 +340,25 @@ endif()
 
 if(UHDR_BUILD_BENCHMARK)
   # benchmark
-  set(BENCHMARK_INCLUDE_DIR ${THIRD_PARTY_DIR}/benchmark/include)
+  set(BM_TARGET_NAME benchmark)
+  set(BM_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${BM_TARGET_NAME})
+  set(BM_SOURCE_DIR ${THIRD_PARTY_DIR}/${BM_TARGET_NAME})
+  set(BM_BINARY_DIR ${BM_PREFIX_DIR}/src/${BM_TARGET_NAME}-build)
+  set(BENCHMARK_INCLUDE_DIR ${BM_SOURCE_DIR}/include)
+  set(BM_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(BM_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(IS_MULTI)
-    set(BENCHMARK_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark.lib
-        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark_main.lib)
+    set(BM_LIB_PREFIX ${BM_BINARY_DIR}/src/$<CONFIG>/)
   else()
-    if(MSVC)
-      set(BENCHMARK_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark.lib
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark_main.lib)
-    else()
-      set(BENCHMARK_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark.a
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark_main.a)
-    endif()
+    set(BM_LIB_PREFIX ${BM_BINARY_DIR}/src/)
   endif()
-  ExternalProject_Add(benchmark
+  set(BENCHMARK_LIBRARIES ${BM_LIB_PREFIX}${BM_LIB} ${BM_LIB_PREFIX}${BM_LIB_MAIN})
+  ExternalProject_Add(${BM_TARGET_NAME}
       GIT_REPOSITORY https://github.com/google/benchmark.git
       GIT_TAG v1.8.3
-      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/benchmark
-      SOURCE_DIR ${THIRD_PARTY_DIR}/benchmark
+      PREFIX ${BM_PREFIX_DIR}
+      SOURCE_DIR ${BM_SOURCE_DIR}
+      BINARY_DIR ${BM_BINARY_DIR}
       CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                  -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
@@ -280,6 +366,7 @@ if(UHDR_BUILD_BENCHMARK)
                  -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}
                  -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL}
                  -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
+                 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
                  -DBENCHMARK_ENABLE_TESTING=OFF
                  -DBENCHMARK_DOWNLOAD_DEPENDENCIES=OFF
       BUILD_BYPRODUCTS ${BENCHMARK_LIBRARIES}
@@ -288,47 +375,49 @@ if(UHDR_BUILD_BENCHMARK)
 endif()
 
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build
-    ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build
-    ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build)
+    ${JPEGTURBO_BINARY_DIR} ${GTEST_BINARY_DIR} ${BM_BINARY_DIR})
 
 ###########################################################
 # File Lists
 ###########################################################
-file(GLOB UHDR_LIB_LIST "${SOURCE_DIR}/src/*.cpp")
-file(GLOB UHDR_TEST_LIST "${TESTS_DIR}/*.cpp")
-file(GLOB UHDR_BM_LIST "${BENCHMARK_DIR}/*.cpp")
-file(GLOB IMAGE_IO_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
+file(GLOB UHDR_CORE_SRCS_LIST "${SOURCE_DIR}/src/*.cpp")
+file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/*.cpp")
+file(GLOB UHDR_BM_SRCS_LIST "${BENCHMARK_DIR}/*.cpp")
+file(GLOB IMAGE_IO_SRCS_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
-set(COMMON_INCLUDE_LIST ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
+set(PRIVATE_INCLUDE_DIR ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
 set(COMMON_LIBS_LIST ${JPEG_LIBRARIES} Threads::Threads)
 
 ###########################################################
 # Targets
 ###########################################################
-add_library(image_io STATIC ${IMAGE_IO_LIST})
-target_include_directories(image_io PRIVATE
+set(IMAGEIO_TARGET_NAME image_io)
+add_library(${IMAGEIO_TARGET_NAME} STATIC ${IMAGE_IO_SRCS_LIST})
+target_include_directories(${IMAGEIO_TARGET_NAME} PRIVATE
   "${THIRD_PARTY_DIR}/image_io/includes"
   "${THIRD_PARTY_DIR}/image_io/src/modp_b64"
   "${THIRD_PARTY_DIR}/image_io/src/modp_b64/modp_b64")
 
-add_library(ultrahdr STATIC ${UHDR_LIB_LIST})
-add_dependencies(ultrahdr libjpeg-turbo)
-#target_compile_options(ultrahdr PRIVATE -Wall -Wextra -Wpedantic)
-target_include_directories(ultrahdr PRIVATE
-  ${COMMON_INCLUDE_LIST}
+set(UHDR_CORE_LIB_NAME core)
+add_library(${UHDR_CORE_LIB_NAME} STATIC ${UHDR_CORE_SRCS_LIST})
+if(NOT JPEG_FOUND)
+  add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
+endif()
+#target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wpedantic)
+target_include_directories(${UHDR_CORE_LIB_NAME} PRIVATE
+  ${PRIVATE_INCLUDE_DIR}
   "${THIRD_PARTY_DIR}/image_io/includes/"
 )
-target_link_libraries(ultrahdr PRIVATE ${COMMON_LIBS_LIST} image_io)
+target_include_directories(${UHDR_CORE_LIB_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
+target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
   add_executable(ultrahdr_app "${EXAMPLES_DIR}/ultrahdr_app.cpp")
-  add_dependencies(ultrahdr_app ultrahdr)
-  target_include_directories(ultrahdr_app PRIVATE ${COMMON_INCLUDE_LIST})
+  add_dependencies(ultrahdr_app ${UHDR_CORE_LIB_NAME})
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_app PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  target_link_libraries(ultrahdr_app PRIVATE ultrahdr)
+  target_link_libraries(ultrahdr_app PRIVATE ${UHDR_CORE_LIB_NAME})
 endif()
 
 if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
@@ -348,30 +437,30 @@ if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
 endif()
 
 if(UHDR_BUILD_TESTS)
-  add_executable(ultrahdr_unit_test ${UHDR_TEST_LIST})
-  add_dependencies(ultrahdr_unit_test googletest ultrahdr)
+  add_executable(ultrahdr_unit_test ${UHDR_TEST_SRCS_LIST})
+  add_dependencies(ultrahdr_unit_test ${GTEST_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
   target_include_directories(ultrahdr_unit_test PRIVATE
-    ${COMMON_INCLUDE_LIST}
+    ${PRIVATE_INCLUDE_DIR}
     ${GTEST_INCLUDE_DIRS}
   )
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  target_link_libraries(ultrahdr_unit_test ultrahdr ${GTEST_BOTH_LIBRARIES})
+  target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES})
   add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
 endif()
 
 if(UHDR_BUILD_BENCHMARK)
-  add_executable(ultrahdr_bm ${UHDR_BM_LIST})
-  add_dependencies(ultrahdr_bm benchmark ultrahdr)
+  add_executable(ultrahdr_bm ${UHDR_BM_SRCS_LIST})
+  add_dependencies(ultrahdr_bm ${BM_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
   target_include_directories(ultrahdr_bm PRIVATE
-    ${COMMON_INCLUDE_LIST}
+    ${PRIVATE_INCLUDE_DIR}
     ${BENCHMARK_INCLUDE_DIR}
   )
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_bm PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  target_link_libraries(ultrahdr_bm ultrahdr ${BENCHMARK_LIBRARIES})
+  target_link_libraries(ultrahdr_bm ${UHDR_CORE_LIB_NAME} ${BENCHMARK_LIBRARIES})
 
   set(RES_FILE "${TESTS_DIR}/data/UltrahdrBenchmarkTestRes-1.0.zip")
   set(RES_FILE_MD5SUM "96651c5c07505c37aa017c57f480e6c1")
@@ -411,22 +500,49 @@ endif()
 
 if(UHDR_BUILD_FUZZERS)
   add_executable(ultrahdr_enc_fuzzer ${FUZZERS_DIR}/ultrahdr_enc_fuzzer.cpp)
-  add_dependencies(ultrahdr_enc_fuzzer ultrahdr)
-  target_include_directories(ultrahdr_enc_fuzzer PRIVATE ${COMMON_INCLUDE_LIST})
+  add_dependencies(ultrahdr_enc_fuzzer ${UHDR_CORE_LIB_NAME})
+  target_include_directories(ultrahdr_enc_fuzzer PRIVATE ${PRIVATE_INCLUDE_DIR})
   if(DEFINED ENV{LIB_FUZZING_ENGINE})
     target_link_options(ultrahdr_enc_fuzzer PRIVATE $ENV{LIB_FUZZING_ENGINE})
   else()
     target_link_options(ultrahdr_enc_fuzzer PRIVATE -fsanitize=fuzzer)
   endif()
-  target_link_libraries(ultrahdr_enc_fuzzer ultrahdr)
+  target_link_libraries(ultrahdr_enc_fuzzer ${UHDR_CORE_LIB_NAME})
 
   add_executable(ultrahdr_dec_fuzzer ${FUZZERS_DIR}/ultrahdr_dec_fuzzer.cpp)
-  add_dependencies(ultrahdr_dec_fuzzer ultrahdr)
-  target_include_directories(ultrahdr_dec_fuzzer PRIVATE ${COMMON_INCLUDE_LIST})
+  add_dependencies(ultrahdr_dec_fuzzer ${UHDR_CORE_LIB_NAME})
+  target_include_directories(ultrahdr_dec_fuzzer PRIVATE ${PRIVATE_INCLUDE_DIR})
   if(DEFINED ENV{LIB_FUZZING_ENGINE})
     target_link_options(ultrahdr_dec_fuzzer PRIVATE $ENV{LIB_FUZZING_ENGINE})
   else()
     target_link_options(ultrahdr_dec_fuzzer PRIVATE -fsanitize=fuzzer)
   endif()
-  target_link_libraries(ultrahdr_dec_fuzzer ultrahdr)
+  target_link_libraries(ultrahdr_dec_fuzzer ${UHDR_CORE_LIB_NAME})
+endif()
+
+if(UHDR_ENABLE_INSTALL)
+  set(UHDR_TARGET_NAME uhdr)
+  add_library(${UHDR_TARGET_NAME} SHARED)
+  add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
+  set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+  combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
+
+  if(NOT(WIN32 OR XCODE))
+    include(GNUInstallDirs)
+
+    # pkg-config: libuhdr.pc
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/libuhdr.pc.template"
+                   "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+    install(TARGETS ${UHDR_TARGET_NAME}
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+    add_custom_target(uninstall)
+    add_custom_command(TARGET uninstall
+      POST_BUILD
+      COMMAND xargs rm -vf < install_manifest.txt)
+  endif()
 endif()
