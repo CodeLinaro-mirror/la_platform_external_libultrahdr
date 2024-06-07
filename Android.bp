@@ -40,11 +40,13 @@ cc_library {
         "lib/include",
     ],
     local_include_dirs: ["lib/include"],
+    cflags: ["-DUHDR_ENABLE_INTRINSICS"],
 
     srcs: [
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
         "lib/src/gainmapmath.cpp",
+        "lib/src/gainmapmetadata.cpp",
         "lib/src/jpegrutils.cpp",
         "lib/src/multipictureformat.cpp",
         "lib/src/editorhelper.cpp",
@@ -59,6 +61,26 @@ cc_library {
         "liblog",
     ],
     rtti: true,
+
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+
+    arch: {
+        arm: {
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+            ],
+        },
+        arm64: {
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+                "lib/src/dsp/arm/gainmapmath_neon.cpp",
+            ],
+        },
+    },
 }
 
 cc_library {
@@ -76,6 +98,12 @@ cc_library {
     srcs: [
         "lib/src/jpegencoderhelper.cpp",
     ],
+
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 cc_library {
@@ -93,4 +121,10 @@ cc_library {
     srcs: [
         "lib/src/jpegdecoderhelper.cpp",
     ],
+
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
