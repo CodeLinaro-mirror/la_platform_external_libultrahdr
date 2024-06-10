@@ -23,10 +23,25 @@
 #ifndef ULTRAHDR_API_H
 #define ULTRAHDR_API_H
 
-#ifdef __cplusplus
-#define UHDR_EXTERN extern "C"
+#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(UHDR_BUILDING_SHARED_LIBRARY)
+#define UHDR_API __declspec(dllexport)
+#elif defined(UHDR_USING_SHARED_LIBRARY)
+#define UHDR_API __declspec(dllimport)
 #else
-#define UHDR_EXTERN extern
+#define UHDR_API
+#endif
+#elif defined(__GNUC__) && (__GNUC__ >= 4) && \
+    (defined(UHDR_BUILDING_SHARED_LIBRARY) || defined(UHDR_USING_SHARED_LIBRARY))
+#define UHDR_API __attribute__((visibility("default")))
+#else
+#define UHDR_API
+#endif
+
+#ifdef __cplusplus
+#define UHDR_EXTERN extern "C" UHDR_API
+#else
+#define UHDR_EXTERN extern UHDR_API
 #endif
 
 // ===============================================================================================
@@ -35,46 +50,54 @@
 
 /*!\brief List of supported image formats */
 typedef enum uhdr_img_fmt {
-  UHDR_IMG_FMT_UNSPECIFIED = -1, /**< Unspecified */
-  UHDR_IMG_FMT_24bppYCbCrP010,   /**< 10-bit-per component 4:2:0 YCbCr semiplanar format.
-                                 Each chroma and luma component has 16 allocated bits in
-                                 little-endian configuration with 10 MSB of actual data.*/
-  UHDR_IMG_FMT_12bppYCbCr420,    /**< 8-bit-per component 4:2:0 YCbCr planar format */
-  UHDR_IMG_FMT_8bppYCbCr400,     /**< 8-bit-per component Monochrome format */
-  UHDR_IMG_FMT_32bppRGBA8888, /**< 32 bits per pixel RGBA color format, with 8-bit red, green, blue
-                                 and alpha components. Using 32-bit little-endian representation,
-                                 colors stored as Red 7:0, Green 15:8, Blue 23:16, Alpha 31:24. */
-  UHDR_IMG_FMT_64bppRGBAHalfFloat, /**< 64 bits per pixel RGBA color format, with 16-bit signed
+  UHDR_IMG_FMT_UNSPECIFIED = -1,   /**< Unspecified */
+  UHDR_IMG_FMT_24bppYCbCrP010 = 0, /**< 10-bit-per component 4:2:0 YCbCr semiplanar format.
+                               Each chroma and luma component has 16 allocated bits in
+                               little-endian configuration with 10 MSB of actual data.*/
+  UHDR_IMG_FMT_12bppYCbCr420 = 1,  /**< 8-bit-per component 4:2:0 YCbCr planar format */
+  UHDR_IMG_FMT_8bppYCbCr400 = 2,   /**< 8-bit-per component Monochrome format */
+  UHDR_IMG_FMT_32bppRGBA8888 =
+      3, /**< 32 bits per pixel RGBA color format, with 8-bit red, green, blue
+        and alpha components. Using 32-bit little-endian representation,
+        colors stored as Red 7:0, Green 15:8, Blue 23:16, Alpha 31:24. */
+  UHDR_IMG_FMT_64bppRGBAHalfFloat = 4, /**< 64 bits per pixel RGBA color format, with 16-bit signed
                                    floating point red, green, blue, and alpha components */
-  UHDR_IMG_FMT_32bppRGBA1010102,   /**< 32 bits per pixel RGBA color format, with 10-bit red, green,
-                                      blue, and 2-bit alpha components. Using 32-bit little-endian
-                                      representation, colors stored as Red 9:0, Green 19:10, Blue
-                                      29:20, and Alpha 31:30. */
+  UHDR_IMG_FMT_32bppRGBA1010102 = 5,   /**< 32 bits per pixel RGBA color format, with 10-bit red,
+                                      green,   blue, and 2-bit alpha components. Using 32-bit
+                                      little-endian   representation, colors stored as Red 9:0, Green
+                                      19:10, Blue   29:20, and Alpha 31:30. */
+
+  UHDR_IMG_FMT_24bppYCbCr444 = 6,  /**< 8-bit-per component 4:4:4 YCbCr planar format */
+  UHDR_IMG_FMT_16bppYCbCr422 = 7,  /**< 8-bit-per component 4:2:2 YCbCr planar format */
+  UHDR_IMG_FMT_16bppYCbCr440 = 8,  /**< 8-bit-per component 4:4:0 YCbCr planar format */
+  UHDR_IMG_FMT_12bppYCbCr411 = 9,  /**< 8-bit-per component 4:1:1 YCbCr planar format */
+  UHDR_IMG_FMT_10bppYCbCr410 = 10, /**< 8-bit-per component 4:1:0 YCbCr planar format */
+  UHDR_IMG_FMT_24bppRGB888 = 11,   /**< 8-bit-per component RGB interleaved format */
 } uhdr_img_fmt_t;                  /**< alias for enum uhdr_img_fmt */
 
 /*!\brief List of supported color gamuts */
 typedef enum uhdr_color_gamut {
   UHDR_CG_UNSPECIFIED = -1, /**< Unspecified */
-  UHDR_CG_BT_709,           /**< BT.709 */
-  UHDR_CG_DISPLAY_P3,       /**< Display P3 */
-  UHDR_CG_BT_2100,          /**< BT.2100 */
+  UHDR_CG_BT_709 = 0,       /**< BT.709 */
+  UHDR_CG_DISPLAY_P3 = 1,   /**< Display P3 */
+  UHDR_CG_BT_2100 = 2,      /**< BT.2100 */
 } uhdr_color_gamut_t;       /**< alias for enum uhdr_color_gamut */
 
 /*!\brief List of supported color transfers */
 typedef enum uhdr_color_transfer {
   UHDR_CT_UNSPECIFIED = -1, /**< Unspecified */
-  UHDR_CT_LINEAR,           /**< Linear */
-  UHDR_CT_HLG,              /**< Hybrid log gamma */
-  UHDR_CT_PQ,               /**< Perceptual Quantizer */
-  UHDR_CT_SRGB,             /**< Gamma */
+  UHDR_CT_LINEAR = 0,       /**< Linear */
+  UHDR_CT_HLG = 1,          /**< Hybrid log gamma */
+  UHDR_CT_PQ = 2,           /**< Perceptual Quantizer */
+  UHDR_CT_SRGB = 3,         /**< Gamma */
 } uhdr_color_transfer_t;    /**< alias for enum uhdr_color_transfer */
 
 /*!\brief List of supported color ranges */
 typedef enum uhdr_color_range {
-  UHDR_CR_UNSPECIFIED = -1, /**< Unspecified */
-  UHDR_CR_LIMITED_RANGE,    /**< Y {[16..235], UV [16..240]} * pow(2, (bpc - 8)) */
-  UHDR_CR_FULL_RANGE,       /**< YUV/RGB {[0..255]} * pow(2, (bpc - 8)) */
-} uhdr_color_range_t;       /**< alias for enum uhdr_color_range */
+  UHDR_CR_UNSPECIFIED = -1,  /**< Unspecified */
+  UHDR_CR_LIMITED_RANGE = 0, /**< Y {[16..235], UV [16..240]} * pow(2, (bpc - 8)) */
+  UHDR_CR_FULL_RANGE = 1,    /**< YUV/RGB {[0..255]} * pow(2, (bpc - 8)) */
+} uhdr_color_range_t;        /**< alias for enum uhdr_color_range */
 
 /*!\brief List of supported codecs */
 typedef enum uhdr_codec {
@@ -258,9 +281,9 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
-uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
-                                             uhdr_compressed_image_t* img,
-                                             uhdr_gainmap_metadata_t* metadata);
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
+                                                         uhdr_compressed_image_t* img,
+                                                         uhdr_gainmap_metadata_t* metadata);
 
 /*!\brief Set quality for compression
  *
@@ -522,7 +545,7 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
  *
  * \param[in]  dec  decoder instance.
  *
- * \return nullptr if decoded process call is unsuccessful, gainmap metadata descriptor otherwise
+ * \return nullptr if probe process call is unsuccessful, gainmap metadata descriptor otherwise
  */
 UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec);
 
@@ -543,7 +566,7 @@ UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_p
  *   - uhdr_dec_set_out_color_transfer()
  * - If the application wants to control the output display boost,
  *   - uhdr_dec_set_out_max_display_boost()
- * - The program calls uhdr_decompress() to decode uhdr stream. This call would initiate the process
+ * - The program calls uhdr_decode() to decode uhdr stream. This call would initiate the process
  * of decoding base image and gain map image. These two are combined to give the final rendition
  * image.
  * - The program can access the decoded output with uhdr_get_decoded_image().
