@@ -1746,7 +1746,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
     uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
     uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
-                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+                                      rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
     uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -1952,7 +1952,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
     uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
     uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
-                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+                                      rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
     uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -2263,6 +2263,8 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   map.width = 0;
   map.height = 0;
   map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  map.pixelFormat = UHDR_IMG_FMT_8bppYCbCr400;
+
   {
     auto rawImg = rawImgP010.getImageHandle();
     if (rawImg->luma_stride == 0) rawImg->luma_stride = rawImg->width;
