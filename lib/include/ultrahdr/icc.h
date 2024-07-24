@@ -33,10 +33,10 @@
 #define Endian_SwapBE16(n) (n)
 #endif
 
-#include "ultrahdr.h"
-#include "jpegr.h"
-#include "gainmapmath.h"
-#include "jpegrutils.h"
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/jpegrutils.h"
 
 namespace ultrahdr {
 
@@ -160,7 +160,7 @@ static inline int float_saturate2int(float x) {
   return (int)x;
 }
 
-static Fixed float_round_to_fixed(float x) {
+static inline Fixed float_round_to_fixed(float x) {
   return float_saturate2int((float)floor((double)x * Fixed1 + 0.5));
 }
 

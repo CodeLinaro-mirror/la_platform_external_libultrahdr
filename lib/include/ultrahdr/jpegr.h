@@ -17,6 +17,7 @@
 #ifndef ULTRAHDR_JPEGR_H
 #define ULTRAHDR_JPEGR_H
 
+#include <array>
 #include <cfloat>
 
 #include "ultrahdr/ultrahdr.h"
@@ -26,7 +27,7 @@
 namespace ultrahdr {
 
 // The current JPEGR version that we encode to
-static const char* const kJpegrVersion = "1.0";
+static const char* const kJpegrVersion = kGainMapVersion;
 
 // Map is quarter res / sixteenth size
 static const size_t kMapDimensionScaleFactor = 4;
@@ -36,35 +37,6 @@ static const size_t kMapDimensionScaleFactor = 4;
 // 1 sample is sufficient. We are using 2 here anyways
 static const int kMinWidth = 2 * kMapDimensionScaleFactor;
 static const int kMinHeight = 2 * kMapDimensionScaleFactor;
-
-typedef enum {
-  JPEGR_NO_ERROR = 0,
-  JPEGR_UNKNOWN_ERROR = -1,
-
-  JPEGR_IO_ERROR_BASE = -10000,
-  ERROR_JPEGR_BAD_PTR = JPEGR_IO_ERROR_BASE - 1,
-  ERROR_JPEGR_UNSUPPORTED_WIDTH_HEIGHT = JPEGR_IO_ERROR_BASE - 2,
-  ERROR_JPEGR_INVALID_COLORGAMUT = JPEGR_IO_ERROR_BASE - 3,
-  ERROR_JPEGR_INVALID_STRIDE = JPEGR_IO_ERROR_BASE - 4,
-  ERROR_JPEGR_INVALID_TRANS_FUNC = JPEGR_IO_ERROR_BASE - 5,
-  ERROR_JPEGR_RESOLUTION_MISMATCH = JPEGR_IO_ERROR_BASE - 6,
-  ERROR_JPEGR_INVALID_QUALITY_FACTOR = JPEGR_IO_ERROR_BASE - 7,
-  ERROR_JPEGR_INVALID_DISPLAY_BOOST = JPEGR_IO_ERROR_BASE - 8,
-  ERROR_JPEGR_INVALID_OUTPUT_FORMAT = JPEGR_IO_ERROR_BASE - 9,
-  ERROR_JPEGR_BAD_METADATA = JPEGR_IO_ERROR_BASE - 10,
-
-  JPEGR_RUNTIME_ERROR_BASE = -20000,
-  ERROR_JPEGR_ENCODE_ERROR = JPEGR_RUNTIME_ERROR_BASE - 1,
-  ERROR_JPEGR_DECODE_ERROR = JPEGR_RUNTIME_ERROR_BASE - 2,
-  ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND = JPEGR_RUNTIME_ERROR_BASE - 3,
-  ERROR_JPEGR_BUFFER_TOO_SMALL = JPEGR_RUNTIME_ERROR_BASE - 4,
-  ERROR_JPEGR_METADATA_ERROR = JPEGR_RUNTIME_ERROR_BASE - 5,
-  ERROR_JPEGR_NO_IMAGES_FOUND = JPEGR_RUNTIME_ERROR_BASE - 6,
-  ERROR_JPEGR_MULTIPLE_EXIFS_RECEIVED = JPEGR_RUNTIME_ERROR_BASE - 7,
-  ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR = JPEGR_RUNTIME_ERROR_BASE - 8,
-
-  ERROR_JPEGR_UNSUPPORTED_FEATURE = -30000,
-} status_t;
 
 /*
  * Holds information of jpeg image
@@ -117,6 +89,8 @@ struct jpegr_uncompressed_struct {
   // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
   // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
   size_t chroma_stride = 0;
+  // Pixel format.
+  uhdr_img_fmt_t pixelFormat = UHDR_IMG_FMT_UNSPECIFIED;
 };
 
 /*
@@ -432,8 +406,11 @@ class JpegR {
    * @param src pointer to uncompressed HDR image struct. HDR image is expected to be
    *            in p010 color format
    * @param dest pointer to store tonemapped SDR image
+   * @param hdr_tf transfer function of the HDR image
+   * @return NO_ERROR if calculation succeeds, error code if error occurs.
    */
-  status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest);
+  status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
+                   ultrahdr_transfer_function hdr_tf);
 
   /*
    * This method will convert a YUV420 image from one YUV encoding to another in-place (eg.
@@ -487,6 +464,22 @@ class JpegR {
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
 };
+
+struct GlobalTonemapOutputs {
+  std::array<float, 3> rgb_out;
+  float y_hdr;
+  float y_sdr;
+};
+
+// Applies a global tone mapping, based on Chrome's HLG/PQ rendering implemented
+// at
+// https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/color_transform.cc;l=1198-1232;drc=ac505aff1d29ec3bfcf317cb77d5e196a3664e92
+// `rgb_in` is expected to be in the normalized range of [0.0, 1.0] and
+// `rgb_out` is returned in this same range. `headroom` describes the ratio
+// between the HDR and SDR peak luminances and must be > 1. The `y_sdr` output
+// is in the range [0.0, 1.0] while `y_hdr` is in the range [0.0, headroom].
+GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in, float headroom);
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_JPEGR_H

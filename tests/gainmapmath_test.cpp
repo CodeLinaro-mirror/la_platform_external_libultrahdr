@@ -31,14 +31,38 @@ class GainMapMathTest : public testing::Test {
   float YuvConversionEpsilon() { return 1.0f / (255.0f * 2.0f); }
 
   Color Yuv420(uint8_t y, uint8_t u, uint8_t v) {
-    return {{{static_cast<float>(y) / 255.0f, (static_cast<float>(u) - 128.0f) / 255.0f,
-              (static_cast<float>(v) - 128.0f) / 255.0f}}};
+    return {{{static_cast<float>(y) * (1 / 255.0f), static_cast<float>(u - 128) * (1 / 255.0f),
+              static_cast<float>(v - 128) * (1 / 255.0f)}}};
   }
 
   Color P010(uint16_t y, uint16_t u, uint16_t v) {
-    return {
-        {{(static_cast<float>(y) - 64.0f) / 876.0f, (static_cast<float>(u) - 64.0f) / 896.0f - 0.5f,
-          (static_cast<float>(v) - 64.0f) / 896.0f - 0.5f}}};
+    return {{{static_cast<float>(y - 64) * (1 / 876.0f),
+              static_cast<float>(u - 64) * (1 / 896.0f) - 0.5f,
+              static_cast<float>(v - 64) * (1 / 896.0f) - 0.5f}}};
+  }
+
+  // Using int16_t allows for testing fixed-point implementations.
+  struct Pixel {
+    int16_t y;
+    int16_t u;
+    int16_t v;
+  };
+
+  Pixel getYuv420Pixel_uint(jr_uncompressed_ptr image, size_t x, size_t y) {
+    uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->data);
+    size_t luma_stride = image->luma_stride;
+    uint8_t* chroma_data = reinterpret_cast<uint8_t*>(image->chroma_data);
+    size_t chroma_stride = image->chroma_stride;
+
+    size_t offset_cr = chroma_stride * (image->height / 2);
+    size_t pixel_y_idx = x + y * luma_stride;
+    size_t pixel_chroma_idx = x / 2 + (y / 2) * chroma_stride;
+
+    uint8_t y_uint = luma_data[pixel_y_idx];
+    uint8_t u_uint = chroma_data[pixel_chroma_idx];
+    uint8_t v_uint = chroma_data[offset_cr + pixel_chroma_idx];
+
+    return {y_uint, u_uint, v_uint};
   }
 
   float Map(uint8_t e) { return static_cast<float>(e) / 255.0f; }
@@ -72,6 +96,31 @@ class GainMapMathTest : public testing::Test {
   Color Bt2100YuvRed() { return {{{0.2627f, -0.13963f, 0.5f}}}; }
   Color Bt2100YuvGreen() { return {{{0.6780f, -0.36037f, -0.45979f}}}; }
   Color Bt2100YuvBlue() { return {{{0.0593f, 0.5f, -0.04021f}}}; }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Reference values for when using fixed-point arithmetic.
+
+  Pixel RgbBlackPixel() { return {0, 0, 0}; }
+  Pixel RgbWhitePixel() { return {255, 255, 255}; }
+
+  Pixel RgbRedPixel() { return {255, 0, 0}; }
+  Pixel RgbGreenPixel() { return {0, 255, 0}; }
+  Pixel RgbBluePixel() { return {0, 0, 255}; }
+
+  Pixel YuvBlackPixel() { return {0, 0, 0}; }
+  Pixel YuvWhitePixel() { return {255, 0, 0}; }
+
+  Pixel SrgbYuvRedPixel() { return {54, -29, 128}; }
+  Pixel SrgbYuvGreenPixel() { return {182, -98, -116}; }
+  Pixel SrgbYuvBluePixel() { return {18, 128, -12}; }
+
+  Pixel P3YuvRedPixel() { return {76, -43, 128}; }
+  Pixel P3YuvGreenPixel() { return {150, -84, -107}; }
+  Pixel P3YuvBluePixel() { return {29, 128, -21}; }
+
+  Pixel Bt2100YuvRedPixel() { return {67, -36, 128}; }
+  Pixel Bt2100YuvGreenPixel() { return {173, -92, -117}; }
+  Pixel Bt2100YuvBluePixel() { return {15, 128, -10}; }
 
   float SrgbYuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
@@ -134,6 +183,29 @@ class GainMapMathTest : public testing::Test {
         0xB3,
     };
     return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 2};
+  }
+
+  jpegr_uncompressed_struct Yuv420Image32x4() {
+    // clang-format off
+    static uint8_t pixels[] = {
+    // Y
+    0x0, 0x10, 0x20, 0x30, 0x1, 0x11, 0x21, 0x31, 0x2, 0x12, 0x22, 0x32, 0x3, 0x13, 0x23, 0x33,
+    0x4, 0x14, 0x24, 0x34, 0x5, 0x15, 0x25, 0x35, 0x6, 0x16, 0x26, 0x36, 0x7, 0x17, 0x27, 0x37,
+    0x8, 0x18, 0x28, 0x38, 0x9, 0x19, 0x29, 0x39, 0xa, 0x1a, 0x2a, 0x3a, 0xb, 0x1b, 0x2b, 0x3b,
+    0xc, 0x1c, 0x2c, 0x3c, 0xd, 0x1d, 0x2d, 0x3d, 0xe, 0x1e, 0x2e, 0x3e, 0xf, 0x1f, 0x2f, 0x3f,
+    0x10, 0x20, 0x30, 0x40, 0x11, 0x21, 0x31, 0x41, 0x12, 0x22, 0x32, 0x42, 0x13, 0x23, 0x33, 0x43,
+    0x14, 0x24, 0x34, 0x44, 0x15, 0x25, 0x35, 0x45, 0x16, 0x26, 0x36, 0x46, 0x17, 0x27, 0x37, 0x47,
+    0x18, 0x28, 0x38, 0x48, 0x19, 0x29, 0x39, 0x49, 0x1a, 0x2a, 0x3a, 0x4a, 0x1b, 0x2b, 0x3b, 0x4b,
+    0x1c, 0x2c, 0x3c, 0x4c, 0x1d, 0x2d, 0x3d, 0x4d, 0x1e, 0x2e, 0x3e, 0x4e, 0x1f, 0x2f, 0x3f, 0x4f,
+    // U
+    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+    0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBB, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+    // V
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCC, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF,
+    0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDD, 0xDD, 0xDC, 0xDD, 0xDE, 0xDF,
+    };
+    // clang-format on
+    return {pixels, 32, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 128, 32, 16};
   }
 
   Color (*Yuv420Colors())[4] {
@@ -302,10 +374,15 @@ void GainMapMathTest::TearDown() {}
   EXPECT_NEAR((e1).u, (e2).u, ComparisonEpsilon()); \
   EXPECT_NEAR((e1).v, (e2).v, ComparisonEpsilon())
 
+// Due to -ffp-contract=fast being enabled by default with GCC, allow some
+// margin when comparing fused and unfused floating-point operations.
 #define EXPECT_YUV_BETWEEN(e, min, max)                                           \
-  EXPECT_THAT((e).y, testing::AllOf(testing::Ge((min).y), testing::Le((max).y))); \
-  EXPECT_THAT((e).u, testing::AllOf(testing::Ge((min).u), testing::Le((max).u))); \
-  EXPECT_THAT((e).v, testing::AllOf(testing::Ge((min).v), testing::Le((max).v)))
+  EXPECT_THAT((e).y, testing::AllOf(testing::Ge((min).y - ComparisonEpsilon()),   \
+                                    testing::Le((max).y + ComparisonEpsilon()))); \
+  EXPECT_THAT((e).u, testing::AllOf(testing::Ge((min).u - ComparisonEpsilon()),   \
+                                    testing::Le((max).u + ComparisonEpsilon()))); \
+  EXPECT_THAT((e).v, testing::AllOf(testing::Ge((min).v - ComparisonEpsilon()),   \
+                                    testing::Le((max).v + ComparisonEpsilon())))
 
 // TODO: a bunch of these tests can be parameterized.
 
@@ -589,165 +666,310 @@ TEST_F(GainMapMathTest, Bt2100RgbYuvRoundtrip) {
   EXPECT_RGB_NEAR(rgb_b, RgbBlue());
 }
 
-TEST_F(GainMapMathTest, Bt709ToBt601YuvConversion) {
-  Color yuv_black = srgbRgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv709To601(yuv_black), YuvBlack());
+TEST_F(GainMapMathTest, YuvColorGamutConversion) {
+  const std::array<Color, 5> SrgbYuvColors{YuvBlack(), YuvWhite(), SrgbYuvRed(), SrgbYuvGreen(),
+                                           SrgbYuvBlue()};
 
-  Color yuv_white = srgbRgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv709To601(yuv_white), YuvWhite());
+  const std::array<Color, 5> P3YuvColors{YuvBlack(), YuvWhite(), P3YuvRed(), P3YuvGreen(),
+                                         P3YuvBlue()};
 
-  Color yuv_r = srgbRgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv709To601(yuv_r), P3YuvRed());
+  const std::array<Color, 5> Bt2100YuvColors{YuvBlack(), YuvWhite(), Bt2100YuvRed(),
+                                             Bt2100YuvGreen(), Bt2100YuvBlue()};
+  /*
+   * Each tuple contains three elements.
+   * 0. An array containing 9 coefficients needed to perform the color gamut conversion
+   * 1. Array of colors to be used as test input
+   * 2. Array of colors to used as reference output
+   */
+  const std::array<std::tuple<const std::array<float, 9>&, const std::array<Color, 5>,
+                              const std::array<Color, 5>>,
+                   6>
+      coeffs_setup_expected{{
+          {kYuvBt709ToBt601, SrgbYuvColors, P3YuvColors},
+          {kYuvBt709ToBt2100, SrgbYuvColors, Bt2100YuvColors},
+          {kYuvBt601ToBt709, P3YuvColors, SrgbYuvColors},
+          {kYuvBt601ToBt2100, P3YuvColors, Bt2100YuvColors},
+          {kYuvBt2100ToBt709, Bt2100YuvColors, SrgbYuvColors},
+          {kYuvBt2100ToBt601, Bt2100YuvColors, P3YuvColors},
+      }};
 
-  Color yuv_g = srgbRgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv709To601(yuv_g), P3YuvGreen());
+  for (const auto& [coeffs, input, expected] : coeffs_setup_expected) {
+    for (size_t color_idx = 0; color_idx < SrgbYuvColors.size(); ++color_idx) {
+      const Color input_color = input.at(color_idx);
+      const Color output_color = yuvColorGamutConversion(input_color, coeffs);
 
-  Color yuv_b = srgbRgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv709To601(yuv_b), P3YuvBlue());
+      EXPECT_YUV_NEAR(expected.at(color_idx), output_color);
+    }
+  }
 }
 
-TEST_F(GainMapMathTest, Bt709ToBt2100YuvConversion) {
-  Color yuv_black = srgbRgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv709To2100(yuv_black), YuvBlack());
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+TEST_F(GainMapMathTest, YuvConversionNeon) {
+  const std::array<Pixel, 5> SrgbYuvColors{YuvBlackPixel(), YuvWhitePixel(), SrgbYuvRedPixel(),
+                                           SrgbYuvGreenPixel(), SrgbYuvBluePixel()};
 
-  Color yuv_white = srgbRgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv709To2100(yuv_white), YuvWhite());
+  const std::array<Pixel, 5> P3YuvColors{YuvBlackPixel(), YuvWhitePixel(), P3YuvRedPixel(),
+                                         P3YuvGreenPixel(), P3YuvBluePixel()};
 
-  Color yuv_r = srgbRgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv709To2100(yuv_r), Bt2100YuvRed());
+  const std::array<Pixel, 5> Bt2100YuvColors{YuvBlackPixel(), YuvWhitePixel(), Bt2100YuvRedPixel(),
+                                             Bt2100YuvGreenPixel(), Bt2100YuvBluePixel()};
 
-  Color yuv_g = srgbRgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv709To2100(yuv_g), Bt2100YuvGreen());
+  struct InputSamples {
+    std::array<uint8_t, 8> y;
+    std::array<int16_t, 8> u;
+    std::array<int16_t, 8> v;
+  };
 
-  Color yuv_b = srgbRgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv709To2100(yuv_b), Bt2100YuvBlue());
+  struct ExpectedSamples {
+    std::array<int16_t, 8> y;
+    std::array<int16_t, 8> u;
+    std::array<int16_t, 8> v;
+  };
+
+  // Each tuple contains three elements.
+  // 0. A pointer to the coefficients that will be passed to the Neon implementation
+  // 1. Input pixel/color array
+  // 2. The expected results
+  const std::array<
+      std::tuple<const int16_t*, const std::array<Pixel, 5>, const std::array<Pixel, 5>>, 6>
+      coeffs_setup_correct{{
+          {kYuv709To601_coeffs_neon, SrgbYuvColors, P3YuvColors},
+          {kYuv709To2100_coeffs_neon, SrgbYuvColors, Bt2100YuvColors},
+          {kYuv601To709_coeffs_neon, P3YuvColors, SrgbYuvColors},
+          {kYuv601To2100_coeffs_neon, P3YuvColors, Bt2100YuvColors},
+          {kYuv2100To709_coeffs_neon, Bt2100YuvColors, SrgbYuvColors},
+          {kYuv2100To601_coeffs_neon, Bt2100YuvColors, P3YuvColors},
+      }};
+
+  for (const auto& [coeff_ptr, input, expected] : coeffs_setup_correct) {
+    const int16x8_t coeffs = vld1q_s16(coeff_ptr);
+    InputSamples input_values;
+    ExpectedSamples expected_values;
+    for (size_t sample_idx = 0; sample_idx < 8; ++sample_idx) {
+      size_t ring_idx = sample_idx % input.size();
+      input_values.y.at(sample_idx) = static_cast<uint8_t>(input.at(ring_idx).y);
+      input_values.u.at(sample_idx) = input.at(ring_idx).u;
+      input_values.v.at(sample_idx) = input.at(ring_idx).v;
+
+      expected_values.y.at(sample_idx) = expected.at(ring_idx).y;
+      expected_values.u.at(sample_idx) = expected.at(ring_idx).u;
+      expected_values.v.at(sample_idx) = expected.at(ring_idx).v;
+    }
+
+    const uint8x8_t y_neon = vld1_u8(input_values.y.data());
+    const int16x8_t u_neon = vld1q_s16(input_values.u.data());
+    const int16x8_t v_neon = vld1q_s16(input_values.v.data());
+
+    const int16x8x3_t neon_result = yuvConversion_neon(y_neon, u_neon, v_neon, coeffs);
+
+    const int16x8_t y_neon_result = neon_result.val[0];
+    const int16x8_t u_neon_result = neon_result.val[1];
+    const int16x8_t v_neon_result = neon_result.val[2];
+
+    const Pixel result0 = {vgetq_lane_s16(y_neon_result, 0), vgetq_lane_s16(u_neon_result, 0),
+                           vgetq_lane_s16(v_neon_result, 0)};
+
+    const Pixel result1 = {vgetq_lane_s16(y_neon_result, 1), vgetq_lane_s16(u_neon_result, 1),
+                           vgetq_lane_s16(v_neon_result, 1)};
+
+    const Pixel result2 = {vgetq_lane_s16(y_neon_result, 2), vgetq_lane_s16(u_neon_result, 2),
+                           vgetq_lane_s16(v_neon_result, 2)};
+
+    const Pixel result3 = {vgetq_lane_s16(y_neon_result, 3), vgetq_lane_s16(u_neon_result, 3),
+                           vgetq_lane_s16(v_neon_result, 3)};
+
+    const Pixel result4 = {vgetq_lane_s16(y_neon_result, 4), vgetq_lane_s16(u_neon_result, 4),
+                           vgetq_lane_s16(v_neon_result, 4)};
+
+    const Pixel result5 = {vgetq_lane_s16(y_neon_result, 5), vgetq_lane_s16(u_neon_result, 5),
+                           vgetq_lane_s16(v_neon_result, 5)};
+
+    const Pixel result6 = {vgetq_lane_s16(y_neon_result, 6), vgetq_lane_s16(u_neon_result, 6),
+                           vgetq_lane_s16(v_neon_result, 6)};
+
+    const Pixel result7 = {vgetq_lane_s16(y_neon_result, 7), vgetq_lane_s16(u_neon_result, 7),
+                           vgetq_lane_s16(v_neon_result, 7)};
+
+    EXPECT_NEAR(result0.y, expected_values.y.at(0), 1);
+    EXPECT_NEAR(result0.u, expected_values.u.at(0), 1);
+    EXPECT_NEAR(result0.v, expected_values.v.at(0), 1);
+
+    EXPECT_NEAR(result1.y, expected_values.y.at(1), 1);
+    EXPECT_NEAR(result1.u, expected_values.u.at(1), 1);
+    EXPECT_NEAR(result1.v, expected_values.v.at(1), 1);
+
+    EXPECT_NEAR(result2.y, expected_values.y.at(2), 1);
+    EXPECT_NEAR(result2.u, expected_values.u.at(2), 1);
+    EXPECT_NEAR(result2.v, expected_values.v.at(2), 1);
+
+    EXPECT_NEAR(result3.y, expected_values.y.at(3), 1);
+    EXPECT_NEAR(result3.u, expected_values.u.at(3), 1);
+    EXPECT_NEAR(result3.v, expected_values.v.at(3), 1);
+
+    EXPECT_NEAR(result4.y, expected_values.y.at(4), 1);
+    EXPECT_NEAR(result4.u, expected_values.u.at(4), 1);
+    EXPECT_NEAR(result4.v, expected_values.v.at(4), 1);
+
+    EXPECT_NEAR(result5.y, expected_values.y.at(5), 1);
+    EXPECT_NEAR(result5.u, expected_values.u.at(5), 1);
+    EXPECT_NEAR(result5.v, expected_values.v.at(5), 1);
+
+    EXPECT_NEAR(result6.y, expected_values.y.at(6), 1);
+    EXPECT_NEAR(result6.u, expected_values.u.at(6), 1);
+    EXPECT_NEAR(result6.v, expected_values.v.at(6), 1);
+
+    EXPECT_NEAR(result7.y, expected_values.y.at(7), 1);
+    EXPECT_NEAR(result7.u, expected_values.u.at(7), 1);
+    EXPECT_NEAR(result7.v, expected_values.v.at(7), 1);
+  }
 }
-
-TEST_F(GainMapMathTest, Bt601ToBt709YuvConversion) {
-  Color yuv_black = p3RgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv601To709(yuv_black), YuvBlack());
-
-  Color yuv_white = p3RgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv601To709(yuv_white), YuvWhite());
-
-  Color yuv_r = p3RgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv601To709(yuv_r), SrgbYuvRed());
-
-  Color yuv_g = p3RgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv601To709(yuv_g), SrgbYuvGreen());
-
-  Color yuv_b = p3RgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv601To709(yuv_b), SrgbYuvBlue());
-}
-
-TEST_F(GainMapMathTest, Bt601ToBt2100YuvConversion) {
-  Color yuv_black = p3RgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv601To2100(yuv_black), YuvBlack());
-
-  Color yuv_white = p3RgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv601To2100(yuv_white), YuvWhite());
-
-  Color yuv_r = p3RgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv601To2100(yuv_r), Bt2100YuvRed());
-
-  Color yuv_g = p3RgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv601To2100(yuv_g), Bt2100YuvGreen());
-
-  Color yuv_b = p3RgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv601To2100(yuv_b), Bt2100YuvBlue());
-}
-
-TEST_F(GainMapMathTest, Bt2100ToBt709YuvConversion) {
-  Color yuv_black = bt2100RgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv2100To709(yuv_black), YuvBlack());
-
-  Color yuv_white = bt2100RgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv2100To709(yuv_white), YuvWhite());
-
-  Color yuv_r = bt2100RgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv2100To709(yuv_r), SrgbYuvRed());
-
-  Color yuv_g = bt2100RgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv2100To709(yuv_g), SrgbYuvGreen());
-
-  Color yuv_b = bt2100RgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv2100To709(yuv_b), SrgbYuvBlue());
-}
-
-TEST_F(GainMapMathTest, Bt2100ToBt601YuvConversion) {
-  Color yuv_black = bt2100RgbToYuv(RgbBlack());
-  EXPECT_YUV_NEAR(yuv2100To601(yuv_black), YuvBlack());
-
-  Color yuv_white = bt2100RgbToYuv(RgbWhite());
-  EXPECT_YUV_NEAR(yuv2100To601(yuv_white), YuvWhite());
-
-  Color yuv_r = bt2100RgbToYuv(RgbRed());
-  EXPECT_YUV_NEAR(yuv2100To601(yuv_r), P3YuvRed());
-
-  Color yuv_g = bt2100RgbToYuv(RgbGreen());
-  EXPECT_YUV_NEAR(yuv2100To601(yuv_g), P3YuvGreen());
-
-  Color yuv_b = bt2100RgbToYuv(RgbBlue());
-  EXPECT_YUV_NEAR(yuv2100To601(yuv_b), P3YuvBlue());
-}
+#endif
 
 TEST_F(GainMapMathTest, TransformYuv420) {
-  ColorTransformFn transforms[] = {yuv709To601,  yuv709To2100, yuv601To709,
-                                   yuv601To2100, yuv2100To709, yuv2100To601};
-  for (const ColorTransformFn& transform : transforms) {
-    jpegr_uncompressed_struct input = Yuv420Image();
+  jpegr_uncompressed_struct input = Yuv420Image();
+  const size_t buf_size = input.width * input.height * 3 / 2;
+  std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(buf_size);
 
-    size_t out_buf_size = input.width * input.height * 3 / 2;
-    std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(out_buf_size);
-    memcpy(out_buf.get(), input.data, out_buf_size);
+  const std::array<std::array<float, 9>, 6> conversion_coeffs = {
+      kYuvBt709ToBt601,  kYuvBt709ToBt2100, kYuvBt601ToBt709,
+      kYuvBt601ToBt2100, kYuvBt2100ToBt709, kYuvBt2100ToBt601};
+
+  for (size_t coeffs_idx = 0; coeffs_idx < conversion_coeffs.size(); ++coeffs_idx) {
     jpegr_uncompressed_struct output = Yuv420Image();
+    memcpy(out_buf.get(), input.data, buf_size);
     output.data = out_buf.get();
     output.chroma_data = out_buf.get() + input.width * input.height;
     output.luma_stride = input.width;
     output.chroma_stride = input.width / 2;
 
-    transformYuv420(&output, 1, 1, transform);
+    // Perform a color gamut conversion to the entire 4:2:0 image.
+    transformYuv420(&output, conversion_coeffs.at(coeffs_idx));
 
-    for (size_t y = 0; y < 4; ++y) {
-      for (size_t x = 0; x < 4; ++x) {
-        // Skip the last chroma sample, which we modified above
-        if (x >= 2 && y >= 2) {
-          continue;
-        }
+    for (size_t y = 0; y < input.height; y += 2) {
+      for (size_t x = 0; x < input.width; x += 2) {
+        Pixel out1 = getYuv420Pixel_uint(&output, x, y);
+        Pixel out2 = getYuv420Pixel_uint(&output, x + 1, y);
+        Pixel out3 = getYuv420Pixel_uint(&output, x, y + 1);
+        Pixel out4 = getYuv420Pixel_uint(&output, x + 1, y + 1);
 
-        // All other pixels should remain unchanged
-        EXPECT_YUV_EQ(getYuv420Pixel(&input, x, y), getYuv420Pixel(&output, x, y));
+        Color in1 = getYuv420Pixel(&input, x, y);
+        Color in2 = getYuv420Pixel(&input, x + 1, y);
+        Color in3 = getYuv420Pixel(&input, x, y + 1);
+        Color in4 = getYuv420Pixel(&input, x + 1, y + 1);
+
+        in1 = yuvColorGamutConversion(in1, conversion_coeffs.at(coeffs_idx));
+        in2 = yuvColorGamutConversion(in2, conversion_coeffs.at(coeffs_idx));
+        in3 = yuvColorGamutConversion(in3, conversion_coeffs.at(coeffs_idx));
+        in4 = yuvColorGamutConversion(in4, conversion_coeffs.at(coeffs_idx));
+
+        // Clamp and reduce to uint8_t from float.
+        uint8_t expect_y1 = static_cast<uint8_t>(CLIP3((in1.y * 255.0f + 0.5f), 0, 255));
+        uint8_t expect_y2 = static_cast<uint8_t>(CLIP3((in2.y * 255.0f + 0.5f), 0, 255));
+        uint8_t expect_y3 = static_cast<uint8_t>(CLIP3((in3.y * 255.0f + 0.5f), 0, 255));
+        uint8_t expect_y4 = static_cast<uint8_t>(CLIP3((in4.y * 255.0f + 0.5f), 0, 255));
+
+        // Allow an absolute difference of 1 to allow for implmentations using a fixed-point
+        // approximation.
+        EXPECT_NEAR(expect_y1, out1.y, 1);
+        EXPECT_NEAR(expect_y2, out2.y, 1);
+        EXPECT_NEAR(expect_y3, out3.y, 1);
+        EXPECT_NEAR(expect_y4, out4.y, 1);
+
+        Color expect_uv = (in1 + in2 + in3 + in4) / 4.0f;
+
+        uint8_t expect_u =
+            static_cast<uint8_t>(CLIP3((expect_uv.u * 255.0f + 128.0f + 0.5f), 0, 255));
+        uint8_t expect_v =
+            static_cast<uint8_t>(CLIP3((expect_uv.v * 255.0f + 128.0f + 0.5f), 0, 255));
+
+        EXPECT_NEAR(expect_u, out1.u, 1);
+        EXPECT_NEAR(expect_u, out2.u, 1);
+        EXPECT_NEAR(expect_u, out3.u, 1);
+        EXPECT_NEAR(expect_u, out4.u, 1);
+
+        EXPECT_NEAR(expect_v, out1.v, 1);
+        EXPECT_NEAR(expect_v, out2.v, 1);
+        EXPECT_NEAR(expect_v, out3.v, 1);
+        EXPECT_NEAR(expect_v, out4.v, 1);
       }
     }
-
-    // modified pixels should be updated as intended by the transformYuv420 algorithm
-    Color in1 = getYuv420Pixel(&input, 2, 2);
-    Color in2 = getYuv420Pixel(&input, 3, 2);
-    Color in3 = getYuv420Pixel(&input, 2, 3);
-    Color in4 = getYuv420Pixel(&input, 3, 3);
-    Color out1 = getYuv420Pixel(&output, 2, 2);
-    Color out2 = getYuv420Pixel(&output, 3, 2);
-    Color out3 = getYuv420Pixel(&output, 2, 3);
-    Color out4 = getYuv420Pixel(&output, 3, 3);
-
-    EXPECT_NEAR(transform(in1).y, out1.y, YuvConversionEpsilon());
-    EXPECT_NEAR(transform(in2).y, out2.y, YuvConversionEpsilon());
-    EXPECT_NEAR(transform(in3).y, out3.y, YuvConversionEpsilon());
-    EXPECT_NEAR(transform(in4).y, out4.y, YuvConversionEpsilon());
-
-    Color expect_uv = (transform(in1) + transform(in2) + transform(in3) + transform(in4)) / 4.0f;
-
-    EXPECT_NEAR(expect_uv.u, out1.u, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.u, out2.u, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.u, out3.u, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.u, out4.u, YuvConversionEpsilon());
-
-    EXPECT_NEAR(expect_uv.v, out1.v, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.v, out2.v, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.v, out3.v, YuvConversionEpsilon());
-    EXPECT_NEAR(expect_uv.v, out4.v, YuvConversionEpsilon());
   }
 }
+
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+TEST_F(GainMapMathTest, TransformYuv420Neon) {
+  const std::array<std::pair<const int16_t*, const std::array<float, 9>>, 6> fixed_floating_coeffs{
+      {{kYuv709To601_coeffs_neon, kYuvBt709ToBt601},
+       {kYuv709To2100_coeffs_neon, kYuvBt709ToBt2100},
+       {kYuv601To709_coeffs_neon, kYuvBt601ToBt709},
+       {kYuv601To2100_coeffs_neon, kYuvBt601ToBt2100},
+       {kYuv2100To709_coeffs_neon, kYuvBt2100ToBt709},
+       {kYuv2100To601_coeffs_neon, kYuvBt2100ToBt601}}};
+
+  for (const auto& [neon_coeffs_ptr, floating_point_coeffs] : fixed_floating_coeffs) {
+    jpegr_uncompressed_struct input = Yuv420Image32x4();
+    const size_t buf_size = input.width * input.height * 3 / 2;
+
+    std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(buf_size);
+    memcpy(out_buf.get(), input.data, buf_size);
+    jpegr_uncompressed_struct output = Yuv420Image32x4();
+    output.data = out_buf.get();
+    output.chroma_data = out_buf.get() + input.width * input.height;
+    output.luma_stride = input.width;
+    output.chroma_stride = input.width / 2;
+
+    transformYuv420_neon(&output, neon_coeffs_ptr);
+
+    for (size_t y = 0; y < input.height / 2; ++y) {
+      for (size_t x = 0; x < input.width / 2; ++x) {
+        const Pixel out1 = getYuv420Pixel_uint(&output, x * 2, y * 2);
+        const Pixel out2 = getYuv420Pixel_uint(&output, x * 2 + 1, y * 2);
+        const Pixel out3 = getYuv420Pixel_uint(&output, x * 2, y * 2 + 1);
+        const Pixel out4 = getYuv420Pixel_uint(&output, x * 2 + 1, y * 2 + 1);
+
+        Color in1 = getYuv420Pixel(&input, x * 2, y * 2);
+        Color in2 = getYuv420Pixel(&input, x * 2 + 1, y * 2);
+        Color in3 = getYuv420Pixel(&input, x * 2, y * 2 + 1);
+        Color in4 = getYuv420Pixel(&input, x * 2 + 1, y * 2 + 1);
+
+        in1 = yuvColorGamutConversion(in1, floating_point_coeffs);
+        in2 = yuvColorGamutConversion(in2, floating_point_coeffs);
+        in3 = yuvColorGamutConversion(in3, floating_point_coeffs);
+        in4 = yuvColorGamutConversion(in4, floating_point_coeffs);
+
+        const Color expect_uv = (in1 + in2 + in3 + in4) / 4.0f;
+
+        const uint8_t expect_y1 = static_cast<uint8_t>(CLIP3(in1.y * 255.0f + 0.5f, 0, 255));
+        const uint8_t expect_y2 = static_cast<uint8_t>(CLIP3(in2.y * 255.0f + 0.5f, 0, 255));
+        const uint8_t expect_y3 = static_cast<uint8_t>(CLIP3(in3.y * 255.0f + 0.5f, 0, 255));
+        const uint8_t expect_y4 = static_cast<uint8_t>(CLIP3(in4.y * 255.0f + 0.5f, 0, 255));
+
+        const uint8_t expect_u =
+            static_cast<uint8_t>(CLIP3(expect_uv.u * 255.0f + 128.0f + 0.5f, 0, 255));
+        const uint8_t expect_v =
+            static_cast<uint8_t>(CLIP3(expect_uv.v * 255.0f + 128.0f + 0.5f, 0, 255));
+
+        // Due to the Neon version using a fixed-point approximation, this can result in an off by
+        // one error compared with the standard floating-point version.
+        EXPECT_NEAR(expect_y1, out1.y, 1);
+        EXPECT_NEAR(expect_y2, out2.y, 1);
+        EXPECT_NEAR(expect_y3, out3.y, 1);
+        EXPECT_NEAR(expect_y4, out4.y, 1);
+
+        EXPECT_NEAR(expect_u, out1.u, 1);
+        EXPECT_NEAR(expect_u, out2.u, 1);
+        EXPECT_NEAR(expect_u, out3.u, 1);
+        EXPECT_NEAR(expect_u, out4.u, 1);
+
+        EXPECT_NEAR(expect_v, out1.v, 1);
+        EXPECT_NEAR(expect_v, out2.v, 1);
+        EXPECT_NEAR(expect_v, out3.v, 1);
+        EXPECT_NEAR(expect_v, out4.v, 1);
+      }
+    }
+  }
+}
+#endif
 
 TEST_F(GainMapMathTest, HlgOetf) {
   EXPECT_FLOAT_EQ(hlgOetf(0.0f), 0.0f);
