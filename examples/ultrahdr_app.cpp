@@ -244,21 +244,23 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
 
 class UltraHdrAppInput {
  public:
-  UltraHdrAppInput(const char* hdrIntentRawFile, const char* sdrIntentRawFile,
-                   const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
-                   const char* gainmapMetadataCfgFile, const char* outputFile, size_t width,
-                   size_t height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
-                   uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
-                   uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3,
-                   uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
-                   uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
-                   uhdr_color_transfer_t oTf = UHDR_CT_HLG,
-                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102)
+  UltraHdrAppInput(
+      const char* hdrIntentRawFile, const char* sdrIntentRawFile,
+      const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
+      const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
+      size_t width, size_t height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
+      uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
+      uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3, uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
+      uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
+      uhdr_color_transfer_t oTf = UHDR_CT_HLG, uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
+      bool isHdrCrFull = false, int gainmapScaleFactor = 4, int gainmapQuality = 85,
+      bool enableMultiChannelGainMap = false, float gamma = 1.0f, bool enableGLES = false)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
         mGainMapCompressedFile(gainmapCompressedFile),
         mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
+        mExifFile(exifFile),
         mUhdrFile(nullptr),
         mOutputFile(outputFile),
         mWidth(width),
@@ -271,13 +273,23 @@ class UltraHdrAppInput {
         mQuality(quality),
         mOTf(oTf),
         mOfmt(oFmt),
+        mFullRange(isHdrCrFull),
+        mMapDimensionScaleFactor(gainmapScaleFactor),
+        mMapCompressQuality(gainmapQuality),
+        mUseMultiChannelGainMap(enableMultiChannelGainMap),
+        mGamma(gamma),
+        mEnableGLES(enableGLES),
         mMode(0){};
 
-  UltraHdrAppInput(const char* uhdrFile, const char* outputFile,
+  UltraHdrAppInput(const char* gainmapMetadataCfgFile, const char* uhdrFile, const char* outputFile,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
-                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102)
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool enableGLES = false)
       : mHdrIntentRawFile(nullptr),
         mSdrIntentRawFile(nullptr),
+        mSdrIntentCompressedFile(nullptr),
+        mGainMapCompressedFile(nullptr),
+        mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
+        mExifFile(nullptr),
         mUhdrFile(uhdrFile),
         mOutputFile(outputFile),
         mWidth(0),
@@ -290,6 +302,12 @@ class UltraHdrAppInput {
         mQuality(95),
         mOTf(oTf),
         mOfmt(oFmt),
+        mFullRange(UHDR_CR_UNSPECIFIED),
+        mMapDimensionScaleFactor(4),
+        mMapCompressQuality(85),
+        mUseMultiChannelGainMap(false),
+        mGamma(1.0f),
+        mEnableGLES(enableGLES),
         mMode(1){};
 
   ~UltraHdrAppInput() {
@@ -320,6 +338,7 @@ class UltraHdrAppInput {
         mDecodedUhdrYuv444Image.planes[i] = nullptr;
       }
     }
+    if (mExifBlock.data) free(mExifBlock.data);
     if (mUhdrImage.data) free(mUhdrImage.data);
   }
 
@@ -333,6 +352,8 @@ class UltraHdrAppInput {
   bool fillSdrCompressedImageHandle();
   bool fillGainMapCompressedImageHandle();
   bool fillGainMapMetadataDescriptor();
+  bool fillExifMemoryBlock();
+  bool writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata);
   bool convertRgba8888ToYUV444Image();
   bool convertRgba1010102ToYUV444Image();
   bool encode();
@@ -347,6 +368,7 @@ class UltraHdrAppInput {
   const char* mSdrIntentCompressedFile;
   const char* mGainMapCompressedFile;
   const char* mGainMapMetadataCfgFile;
+  const char* mExifFile;
   const char* mUhdrFile;
   const char* mOutputFile;
   const int mWidth;
@@ -359,6 +381,12 @@ class UltraHdrAppInput {
   const int mQuality;
   const uhdr_color_transfer_t mOTf;
   const uhdr_img_fmt_t mOfmt;
+  const bool mFullRange;
+  const size_t mMapDimensionScaleFactor;
+  const int mMapCompressQuality;
+  const bool mUseMultiChannelGainMap;
+  const float mGamma;
+  const bool mEnableGLES;
   const int mMode;
 
   uhdr_raw_image_t mRawP010Image{};
@@ -368,6 +396,7 @@ class UltraHdrAppInput {
   uhdr_compressed_image_t mSdrIntentCompressedImage{};
   uhdr_compressed_image_t mGainMapCompressedImage{};
   uhdr_gainmap_metadata mGainMapMetadata{};
+  uhdr_mem_block_t mExifBlock{};
   uhdr_compressed_image_t mUhdrImage{};
   uhdr_raw_image_t mDecodedUhdrRgbImage{};
   uhdr_raw_image_t mDecodedUhdrYuv444Image{};
@@ -380,7 +409,8 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
   mRawP010Image.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
   mRawP010Image.cg = mHdrCg;
   mRawP010Image.ct = mHdrTf;
-  mRawP010Image.range = UHDR_CR_LIMITED_RANGE;
+
+  mRawP010Image.range = mFullRange ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE;
   mRawP010Image.w = mWidth;
   mRawP010Image.h = mHeight;
   mRawP010Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight * bpp);
@@ -511,6 +541,32 @@ bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
   return true;
 }
 
+bool UltraHdrAppInput::fillExifMemoryBlock() {
+  std::ifstream ifd(mExifFile, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    int size = ifd.tellg();
+    ifd.close();
+    return loadFile(mExifFile, mExifBlock.data, size);
+  }
+  return false;
+}
+
+bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata) {
+  std::ofstream file(mGainMapMetadataCfgFile);
+  if (!file.is_open()) {
+    return false;
+  }
+  file << "--maxContentBoost " << metadata->max_content_boost << std::endl;
+  file << "--minContentBoost " << metadata->min_content_boost << std::endl;
+  file << "--gamma " << metadata->gamma << std::endl;
+  file << "--offsetSdr " << metadata->offset_sdr << std::endl;
+  file << "--offsetHdr " << metadata->offset_hdr << std::endl;
+  file << "--hdrCapacityMin " << metadata->hdr_capacity_min << std::endl;
+  file << "--hdrCapacityMax " << metadata->hdr_capacity_max << std::endl;
+  file.close();
+  return true;
+}
+
 bool UltraHdrAppInput::fillUhdrImageHandle() {
   std::ifstream ifd(mUhdrFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
@@ -576,6 +632,12 @@ bool UltraHdrAppInput::encode() {
       return false;
     }
   }
+  if (mExifFile != nullptr) {
+    if (!fillExifMemoryBlock()) {
+      std::cerr << " failed to load file " << mExifFile << std::endl;
+      return false;
+    }
+  }
 
 #define RET_IF_ERR(x)                            \
   {                                              \
@@ -612,18 +674,26 @@ bool UltraHdrAppInput::encode() {
   if (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) {
     RET_IF_ERR(uhdr_enc_set_gainmap_image(handle, &mGainMapCompressedImage, &mGainMapMetadata))
   }
+  if (mExifFile != nullptr) {
+    RET_IF_ERR(uhdr_enc_set_exif_data(handle, &mExifBlock))
+  }
+
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
+  RET_IF_ERR(uhdr_enc_set_quality(handle, mMapCompressQuality, UHDR_GAIN_MAP_IMG))
+  RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
+  RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(handle, mMapDimensionScaleFactor))
+  RET_IF_ERR(uhdr_enc_set_gainmap_gamma(handle, mGamma))
+  if (mEnableGLES) {
+    RET_IF_ERR(uhdr_enable_gpu_acceleration(handle, mEnableGLES))
+  }
 #ifdef PROFILE_ENABLE
-  const int profileCount = 10;
   Profiler profileEncode;
   profileEncode.timerStart();
-  for (auto i = 0; i < profileCount; i++) {
 #endif
-    RET_IF_ERR(uhdr_encode(handle))
+  RET_IF_ERR(uhdr_encode(handle))
 #ifdef PROFILE_ENABLE
-  }
   profileEncode.timerStop();
-  auto avgEncTime = profileEncode.elapsedTime() / (profileCount * 1000.f);
+  auto avgEncTime = profileEncode.elapsedTime() / 1000.f;
   printf("Average encode time for res %d x %d is %f ms \n", mWidth, mHeight, avgEncTime);
 #endif
 
@@ -638,10 +708,9 @@ bool UltraHdrAppInput::encode() {
   mUhdrImage.cg = output->cg;
   mUhdrImage.ct = output->ct;
   mUhdrImage.range = output->range;
-  writeFile(mOutputFile, output->data, output->data_sz);
   uhdr_release_encoder(handle);
 
-  return true;
+  return writeFile(mOutputFile, mUhdrImage.data, mUhdrImage.data_sz);
 }
 
 bool UltraHdrAppInput::decode() {
@@ -666,19 +735,28 @@ bool UltraHdrAppInput::decode() {
   RET_IF_ERR(uhdr_dec_set_image(handle, &mUhdrImage))
   RET_IF_ERR(uhdr_dec_set_out_color_transfer(handle, mOTf))
   RET_IF_ERR(uhdr_dec_set_out_img_format(handle, mOfmt))
+  if (mEnableGLES) {
+    RET_IF_ERR(uhdr_enable_gpu_acceleration(handle, mEnableGLES))
+  }
+  RET_IF_ERR(uhdr_dec_probe(handle))
+  if (mGainMapMetadataCfgFile != nullptr) {
+    uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gain_map_metadata(handle);
+    if (!writeGainMapMetadataToFile(metadata)) {
+      std::cerr << "failed to write gainmap metadata to file: " << mGainMapMetadataCfgFile
+                << std::endl;
+    }
+  }
 
 #ifdef PROFILE_ENABLE
-  const int profileCount = 10;
   Profiler profileDecode;
   profileDecode.timerStart();
-  for (auto i = 0; i < profileCount; i++) {
 #endif
-    RET_IF_ERR(uhdr_decode(handle))
+  RET_IF_ERR(uhdr_decode(handle))
 #ifdef PROFILE_ENABLE
-  }
   profileDecode.timerStop();
-  auto avgDecTime = profileDecode.elapsedTime() / (profileCount * 1000.f);
-  printf("Average decode time for res %ld x %ld is %f ms \n", info.width, info.height, avgDecTime);
+  auto avgDecTime = profileDecode.elapsedTime() / 1000.f;
+  printf("Average decode time for res %d x %d is %f ms \n", uhdr_dec_get_image_width(handle),
+         uhdr_dec_get_image_height(handle), avgDecTime);
 #endif
 
 #undef RET_IF_ERR
@@ -702,10 +780,9 @@ bool UltraHdrAppInput::decode() {
   for (unsigned i = 0; i < output->h; i++, inData += inStride, outData += outStride) {
     memcpy(outData, inData, length);
   }
-  writeFile(mOutputFile, output);
   uhdr_release_decoder(handle);
 
-  return true;
+  return mMode == 1 ? writeFile(mOutputFile, &mDecodedUhdrRgbImage) : true;
 }
 
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
@@ -746,13 +823,23 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
       float u0 = float(u[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
       float v0 = float(v[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
 
-      y0 = CLIP3(y0, 64.0f, 940.0f);
-      u0 = CLIP3(u0, 64.0f, 960.0f);
-      v0 = CLIP3(v0, 64.0f, 960.0f);
+      if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
+        y0 = CLIP3(y0, 0.0f, 1023.0f);
+        u0 = CLIP3(u0, 0.0f, 1023.0f);
+        v0 = CLIP3(v0, 0.0f, 1023.0f);
 
-      y0 = (y0 - 64.0f) / 876.0f;
-      u0 = (u0 - 512.0f) / 896.0f;
-      v0 = (v0 - 512.0f) / 896.0f;
+        y0 = y0 / 1023.0f;
+        u0 = u0 / 1023.0f;
+        v0 = v0 / 1023.0f;
+      } else {
+        y0 = CLIP3(y0, 64.0f, 940.0f);
+        u0 = CLIP3(u0, 64.0f, 960.0f);
+        v0 = CLIP3(v0, 64.0f, 960.0f);
+
+        y0 = (y0 - 64.0f) / 876.0f;
+        u0 = (u0 - 512.0f) / 896.0f;
+        v0 = (v0 - 512.0f) / 896.0f;
+      }
 
       float r = coeffs[0] * y0 + coeffs[1] * u0 + coeffs[2] * v0;
       float g = coeffs[3] * y0 + coeffs[4] * u0 + coeffs[5] * v0;
@@ -929,7 +1016,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   mDecodedUhdrYuv444Image.fmt = static_cast<uhdr_img_fmt_t>(UHDR_IMG_FMT_48bppYCbCr444);
   mDecodedUhdrYuv444Image.cg = mDecodedUhdrRgbImage.cg;
   mDecodedUhdrYuv444Image.ct = mDecodedUhdrRgbImage.ct;
-  mDecodedUhdrYuv444Image.range = UHDR_CR_LIMITED_RANGE;
+  mDecodedUhdrYuv444Image.range = mRawP010Image.range;
   mDecodedUhdrYuv444Image.w = mDecodedUhdrRgbImage.w;
   mDecodedUhdrYuv444Image.h = mDecodedUhdrRgbImage.h;
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_Y] =
@@ -964,13 +1051,23 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       float u = coeffs[3] * r0 + coeffs[4] * g0 + coeffs[5] * b0;
       float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
 
-      y = (y * 876.0f) + 64.0f + 0.5f;
-      u = (u * 896.0f) + 512.0f + 0.5f;
-      v = (v * 896.0f) + 512.0f + 0.5f;
+      if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
+        y = y * 1023.0f;
+        u = u * 1023.0f;
+        v = v * 1023.0f;
 
-      y = CLIP3(y, 64.0f, 940.0f);
-      u = CLIP3(u, 64.0f, 960.0f);
-      v = CLIP3(v, 64.0f, 960.0f);
+        y = CLIP3(y, 0.0f, 1023.0f);
+        u = CLIP3(u, 0.0f, 1023.0f);
+        v = CLIP3(v, 0.0f, 1023.0f);
+      } else {
+        y = (y * 876.0f) + 64.0f + 0.5f;
+        u = (u * 896.0f) + 512.0f + 0.5f;
+        v = (v * 896.0f) + 512.0f + 0.5f;
+
+        y = CLIP3(y, 64.0f, 940.0f);
+        u = CLIP3(u, 64.0f, 960.0f);
+        v = CLIP3(v, 64.0f, 960.0f);
+      }
 
       yData[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] * i + j] = uint16_t(y);
       uData[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j] = uint16_t(u);
@@ -994,8 +1091,13 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
   }
-  if (mOTf != mHdrTf) {
-    std::cout << "input transfer function and output format are not compatible, psnr results "
+  if (mRawRgba1010102Image.ct != mDecodedUhdrRgbImage.ct) {
+    std::cout << "input color transfer and output color transfer are not identical, rgb psnr "
+                 "results may be unreliable"
+              << std::endl;
+  }
+  if (mRawRgba1010102Image.cg != mDecodedUhdrRgbImage.cg) {
+    std::cout << "input color gamut and output color gamut are not identical, rgb psnr results "
                  "may be unreliable"
               << std::endl;
   }
@@ -1025,8 +1127,7 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
   meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  std::cout << "psnr r :: " << mPsnr[0] << " psnr g :: " << mPsnr[1] << " psnr b :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeRGBSdrPSNR() {
@@ -1067,8 +1168,7 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
   meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  std::cout << "psnr r :: " << mPsnr[0] << " psnr g :: " << mPsnr[1] << " psnr b :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeYUVHdrPSNR() {
@@ -1088,8 +1188,18 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
   }
-  if (mOTf != mHdrTf) {
-    std::cout << "input transfer function and output format are not compatible, psnr results "
+  if (mRawP010Image.ct != mDecodedUhdrYuv444Image.ct) {
+    std::cout << "input color transfer and output color transfer are not identical, yuv psnr "
+                 "results may be unreliable"
+              << std::endl;
+  }
+  if (mRawP010Image.cg != mDecodedUhdrYuv444Image.cg) {
+    std::cout << "input color gamut and output color gamut are not identical, yuv psnr results "
+                 "may be unreliable"
+              << std::endl;
+  }
+  if (mRawP010Image.range != mDecodedUhdrYuv444Image.range) {
+    std::cout << "input range and output range are not identical, yuv psnr results "
                  "may be unreliable"
               << std::endl;
   }
@@ -1136,8 +1246,7 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  std::cout << "psnr y :: " << mPsnr[0] << " psnr u :: " << mPsnr[1] << " psnr v :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeYUVSdrPSNR() {
@@ -1190,8 +1299,7 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
   meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  std::cout << "psnr y :: " << mPsnr[0] << " psnr u :: " << mPsnr[1] << " psnr v :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 static void usage(const char* name) {
@@ -1199,36 +1307,50 @@ static void usage(const char* name) {
   fprintf(stderr, "    -m    mode of operation. [0:encode, 1:decode] \n");
   fprintf(stderr, "\n## encoder options : \n");
   fprintf(stderr,
-          "    -p    raw 10 bit input resource, required for encoding scenarios 0, 1, 2, 3. \n");
-  fprintf(stderr, "    -y    raw 8 bit input resource, required for encoding scenarios 1, 2. \n");
-  fprintf(stderr,
-          "    -a    raw 10 bit input resource color format, optional. [0:p010, 5:rgba1010102 "
-          "(default)] \n");
-  fprintf(stderr,
-          "    -b    raw 8 bit input resource color format, optional. [1:yuv420, 3:rgba8888 "
-          "(default)] \n");
-  fprintf(stderr,
-          "    -i    compressed 8 bit jpeg file path, required for encoding scenarios 2, 3, 4. \n");
-  fprintf(stderr,
-          "    -g    compressed 8 bit gainmap file path, required for encoding scenario 4. \n");
-  fprintf(stderr, "    -f    gainmap metadata config file, required for encoding scenario 4. \n");
-  fprintf(stderr, "    -w    input file width. \n");
-  fprintf(stderr, "    -h    input file height. \n");
-  fprintf(stderr,
-          "    -C    10 bit input color gamut, optional. [0:bt709, 1:p3 (default), 2:bt2100] \n");
-  fprintf(stderr,
-          "    -c    8 bit input color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100] \n");
+          "    -p    raw hdr intent input resource (10-bit), required for encoding scenarios 0, 1, "
+          "2, 3. \n");
   fprintf(
       stderr,
-      "    -t    10 bit input transfer function, optional. [0:linear, 1:hlg (default), 2:pq] \n");
+      "    -y    raw sdr intent input resource (8-bit), required for encoding scenarios 1, 2. \n");
   fprintf(stderr,
-          "    -q    quality factor to be used while encoding 8 bit image, optional. [0-100], 95 : "
-          "default.\n"
-          "          gain map image does not use this quality factor. \n"
-          "          for now gain map image quality factor is not configurable. \n");
+          "    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102 (default)] \n");
+  fprintf(stderr,
+          "    -b    raw sdr intent color format, optional. [1:yuv420, 3:rgba8888 (default)] \n");
+  fprintf(stderr,
+          "    -i    compressed sdr intent input resource (jpeg), required for encoding scenarios "
+          "2, 3, 4. \n");
+  fprintf(
+      stderr,
+      "    -g    compressed gainmap input resource (jpeg), required for encoding scenario 4. \n");
+  fprintf(stderr, "    -w    input file width, required for encoding scenarios 0, 1, 2, 3. \n");
+  fprintf(stderr, "    -h    input file height, required for encoding scenarios 0, 1, 2, 3. \n");
+  fprintf(stderr,
+          "    -C    hdr intent color gamut, optional. [0:bt709, 1:p3 (default), 2:bt2100] \n");
+  fprintf(stderr,
+          "    -c    sdr intent color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100] \n");
+  fprintf(stderr,
+          "    -t    hdr intent color transfer, optional. [0:linear, 1:hlg (default), 2:pq] \n");
+  fprintf(stderr,
+          "    -q    quality factor to be used while encoding sdr intent, optional. [0-100], 95 : "
+          "default.\n");
   fprintf(stderr, "    -e    compute psnr, optional. [0:no (default), 1:yes] \n");
+  fprintf(stderr,
+          "    -R    color range of hdr intent, optional. [0:narrow-range (default), "
+          "1:full-range]. \n");
+  fprintf(stderr,
+          "    -s    gainmap image downsample factor, optional. [integer values in range [1 - 128] "
+          "(4 : default)]. \n");
+  fprintf(stderr,
+          "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
+          "85 : default. \n");
+  fprintf(stderr,
+          "    -G    gamma correction to be applied on the gainmap image, optional. [any positive "
+          "real number (1.0 : default)].\n");
+  fprintf(stderr,
+          "    -M    select multi channel gain map, optional. [0:disable (default), 1:enable]. \n");
+  fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
-  fprintf(stderr, "    -j    ultra hdr compressed input resource. \n");
+  fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");
   fprintf(
       stderr,
       "    -o    output transfer function, optional. [0:linear, 1:hlg (default), 2:pq, 3:srgb] \n");
@@ -1241,11 +1363,19 @@ static void usage(const char* name) {
       "          srgb output color transfer shall be paired with rgba8888 only. \n"
       "          hlg, pq shall be paired with rgba1010102. \n"
       "          linear shall be paired with rgbahalffloat. \n");
+  fprintf(stderr,
+          "    -u    enable gles acceleration, optional. [0:disable (default), 1:enable]. \n");
   fprintf(stderr, "\n## common options : \n");
   fprintf(stderr,
           "    -z    output filename, optional. \n"
           "          in encoding mode, default output filename 'out.jpeg'. \n"
           "          in decoding mode, default output filename 'outrgb.raw'. \n");
+  fprintf(
+      stderr,
+      "    -f    gainmap metadata config file. \n"
+      "          in encoding mode, resource from which gainmap metadata is read, required for "
+      "encoding scenario 4. \n"
+      "          in decoding mode, resource to which gainmap metadata is written, optional. \n");
   fprintf(stderr, "\n## examples of usage :\n");
   fprintf(stderr, "\n## encode scenario 0 :\n");
   fprintf(stderr,
@@ -1292,6 +1422,11 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    ultrahdr_app -m 0 -i cosmat_1920x1080_420_8bit.jpg -g cosmat_1920x1080_420_8bit.jpg "
           "-f metadata.cfg\n");
+  fprintf(stderr, "\n## encode at high quality :\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p hdr_intent.raw -y sdr_intent.raw -w 640 -h 480 -c <select> -C "
+          "<select> -t <select> -s 1 -M 1 -Q 98 -q 98\n");
+
   fprintf(stderr, "\n## decode api :\n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg \n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg -o 3 -O 3\n");
@@ -1300,10 +1435,10 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
-       *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr;
+       *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr;
   int width = 0, height = 0;
   uhdr_color_gamut_t hdr_cg = UHDR_CG_DISPLAY_P3;
   uhdr_color_gamut_t sdr_cg = UHDR_CG_BT_709;
@@ -1314,7 +1449,13 @@ int main(int argc, char* argv[]) {
   uhdr_color_transfer_t out_tf = UHDR_CT_HLG;
   uhdr_img_fmt_t out_cf = UHDR_IMG_FMT_32bppRGBA1010102;
   int mode = -1;
+  int gainmap_scale_factor = 4;
+  bool use_multi_channel_gainmap = false;
+  bool use_full_range_color_hdr = false;
+  int gainmap_compression_quality = 85;
   int compute_psnr = 0;
+  float gamma = 1.0f;
+  bool enable_gles = false;
   int ch;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
@@ -1366,6 +1507,25 @@ int main(int argc, char* argv[]) {
       case 'm':
         mode = atoi(optarg_s);
         break;
+      case 'R':
+        use_full_range_color_hdr = atoi(optarg_s) == 1 ? true : false;
+        break;
+      // TODO
+      /*case 'r':
+        use_full_range_color_sdr = atoi(optarg_s) == 1 ? true : false;
+        break;*/
+      case 's':
+        gainmap_scale_factor = atoi(optarg_s);
+        break;
+      case 'M':
+        use_multi_channel_gainmap = atoi(optarg_s) == 1 ? true : false;
+        break;
+      case 'Q':
+        gainmap_compression_quality = atoi(optarg_s);
+        break;
+      case 'G':
+        gamma = atof(optarg_s);
+        break;
       case 'j':
         uhdr_file = optarg_s;
         break;
@@ -1375,18 +1535,24 @@ int main(int argc, char* argv[]) {
       case 'z':
         output_file = optarg_s;
         break;
+      case 'x':
+        exif_file = optarg_s;
+        break;
+      case 'u':
+        enable_gles = atoi(optarg_s) == 1 ? true : false;
+        break;
       default:
         usage(argv[0]);
         return -1;
     }
   }
   if (mode == 0) {
-    if (width <= 0) {
+    if (width <= 0 && gainmap_metadata_cfg_file == nullptr) {
       std::cerr << "did not receive valid image width for encoding. width :  " << width
                 << std::endl;
       return -1;
     }
-    if (height <= 0) {
+    if (height <= 0 && gainmap_metadata_cfg_file == nullptr) {
       std::cerr << "did not receive valid image height for encoding. height :  " << height
                 << std::endl;
       return -1;
@@ -1397,10 +1563,12 @@ int main(int argc, char* argv[]) {
       std::cerr << "did not receive raw resources for encoding." << std::endl;
       return -1;
     }
-    UltraHdrAppInput appInput(hdr_intent_raw_file, sdr_intent_raw_file, sdr_intent_compressed_file,
-                              gainmap_compressed_file, gainmap_metadata_cfg_file,
-                              output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
-                              hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf);
+    UltraHdrAppInput appInput(
+        hdr_intent_raw_file, sdr_intent_raw_file, sdr_intent_compressed_file,
+        gainmap_compressed_file, gainmap_metadata_cfg_file, exif_file,
+        output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf, hdr_cg, sdr_cg,
+        hdr_tf, quality, out_tf, out_cf, use_full_range_color_hdr, gainmap_scale_factor,
+        gainmap_compression_quality, use_multi_channel_gainmap, gamma, enable_gles);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;
@@ -1431,10 +1599,12 @@ int main(int argc, char* argv[]) {
       std::cerr << "did not receive resources for decoding " << std::endl;
       return -1;
     }
-    UltraHdrAppInput appInput(uhdr_file, output_file ? output_file : "outrgb.raw", out_tf, out_cf);
+    UltraHdrAppInput appInput(gainmap_metadata_cfg_file, uhdr_file,
+                              output_file ? output_file : "outrgb.raw", out_tf, out_cf,
+                              enable_gles);
     if (!appInput.decode()) return -1;
   } else {
-    std::cerr << "unrecognized input mode " << mode << std::endl;
+    if (argc > 1) std::cerr << "did not receive valid mode of operation " << mode << std::endl;
     usage(argv[0]);
     return -1;
   }
