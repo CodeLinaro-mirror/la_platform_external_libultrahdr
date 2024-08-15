@@ -1399,15 +1399,15 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
 }
 
 TEST(JpegRTest, writeXmpThenRead) {
-  ultrahdr_metadata_struct metadata_expected;
+  uhdr_gainmap_metadata_ext_t metadata_expected;
   metadata_expected.version = "1.0";
-  metadata_expected.maxContentBoost = 1.25f;
-  metadata_expected.minContentBoost = 0.75f;
+  metadata_expected.max_content_boost = 1.25f;
+  metadata_expected.min_content_boost = 0.75f;
   metadata_expected.gamma = 1.0f;
-  metadata_expected.offsetSdr = 0.0f;
-  metadata_expected.offsetHdr = 0.0f;
-  metadata_expected.hdrCapacityMin = 1.0f;
-  metadata_expected.hdrCapacityMax = metadata_expected.maxContentBoost;
+  metadata_expected.offset_sdr = 0.0f;
+  metadata_expected.offset_hdr = 0.0f;
+  metadata_expected.hdr_capacity_min = 1.0f;
+  metadata_expected.hdr_capacity_max = metadata_expected.max_content_boost;
   const std::string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
   const int nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
 
@@ -1420,15 +1420,16 @@ TEST(JpegRTest, writeXmpThenRead) {
   xmpData.insert(xmpData.end(), reinterpret_cast<const uint8_t*>(xmp.c_str()),
                  reinterpret_cast<const uint8_t*>(xmp.c_str()) + xmp.size());
 
-  ultrahdr_metadata_struct metadata_read;
-  EXPECT_TRUE(getMetadataFromXMP(xmpData.data(), xmpData.size(), &metadata_read));
-  EXPECT_FLOAT_EQ(metadata_expected.maxContentBoost, metadata_read.maxContentBoost);
-  EXPECT_FLOAT_EQ(metadata_expected.minContentBoost, metadata_read.minContentBoost);
+  uhdr_gainmap_metadata_ext_t metadata_read;
+  EXPECT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), &metadata_read).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_FLOAT_EQ(metadata_expected.max_content_boost, metadata_read.max_content_boost);
+  EXPECT_FLOAT_EQ(metadata_expected.min_content_boost, metadata_read.min_content_boost);
   EXPECT_FLOAT_EQ(metadata_expected.gamma, metadata_read.gamma);
-  EXPECT_FLOAT_EQ(metadata_expected.offsetSdr, metadata_read.offsetSdr);
-  EXPECT_FLOAT_EQ(metadata_expected.offsetHdr, metadata_read.offsetHdr);
-  EXPECT_FLOAT_EQ(metadata_expected.hdrCapacityMin, metadata_read.hdrCapacityMin);
-  EXPECT_FLOAT_EQ(metadata_expected.hdrCapacityMax, metadata_read.hdrCapacityMax);
+  EXPECT_FLOAT_EQ(metadata_expected.offset_sdr, metadata_read.offset_sdr);
+  EXPECT_FLOAT_EQ(metadata_expected.offset_hdr, metadata_read.offset_hdr);
+  EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_min, metadata_read.hdr_capacity_min);
+  EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_max, metadata_read.hdr_capacity_max);
 }
 
 class JpegRAPIEncodeAndDecodeTest
@@ -1461,7 +1462,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
   uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
   uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-  uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+  uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
   uhdrRawImg.w = kImageWidth;
   uhdrRawImg.h = kImageHeight;
   uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg.getImageHandle()->data;
@@ -1524,7 +1525,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2.getImageHandle()->data;
@@ -1724,7 +1725,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
@@ -1738,7 +1739,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
     uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_FULL_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
@@ -1746,7 +1747,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
     uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
     uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
-                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+                                      rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
     uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -1930,7 +1931,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
@@ -1944,7 +1945,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
     uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_FULL_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
@@ -1952,7 +1953,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
     uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
     uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
-                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+                                      rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
     uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -2107,7 +2108,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
@@ -2202,48 +2203,47 @@ class Profiler {
 
 class JpegRBenchmark : public JpegR {
  public:
-  void BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr p010Image,
-                                ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr map);
-  void BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
-                             ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr dest);
+#ifdef UHDR_ENABLE_GLES
+  JpegRBenchmark(uhdr_opengl_ctxt_t* uhdrGLCtxt) : JpegR(uhdrGLCtxt) {}
+#endif
+  void BenchmarkGenerateGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* p010Image,
+                                uhdr_gainmap_metadata_ext_t* metadata,
+                                std::unique_ptr<uhdr_raw_image_ext_t>& gainmap);
+  void BenchmarkApplyGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* map,
+                             uhdr_gainmap_metadata_ext_t* metadata, uhdr_raw_image_t* dest);
 
  private:
   const int kProfileCount = 10;
 };
 
-void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
-                                              jr_uncompressed_ptr p010Image,
-                                              ultrahdr_metadata_ptr metadata,
-                                              jr_uncompressed_ptr map) {
-  ASSERT_EQ(yuv420Image->width, p010Image->width);
-  ASSERT_EQ(yuv420Image->height, p010Image->height);
+void JpegRBenchmark::BenchmarkGenerateGainMap(uhdr_raw_image_t* yuv420Image,
+                                              uhdr_raw_image_t* p010Image,
+                                              uhdr_gainmap_metadata_ext_t* metadata,
+                                              std::unique_ptr<uhdr_raw_image_ext_t>& gainmap) {
+  ASSERT_EQ(yuv420Image->w, p010Image->w);
+  ASSERT_EQ(yuv420Image->h, p010Image->h);
   Profiler profileGenerateMap;
   profileGenerateMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR,
-              generateGainMap(yuv420Image, p010Image, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
-                              metadata, map));
-    if (i != kProfileCount - 1) {
-      delete[] static_cast<uint8_t*>(map->data);
-      map->data = nullptr;
-    }
+    ASSERT_EQ(UHDR_CODEC_OK, generateGainMap(yuv420Image, p010Image, metadata, gainmap).error_code);
   }
   profileGenerateMap.timerStop();
-  ALOGE("Generate Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width,
-        yuv420Image->height, profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
+  ALOGV("Generate Gain Map:- Res = %u x %u, time = %f ms", yuv420Image->w, yuv420Image->h,
+        profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
-void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
-                                           ultrahdr_metadata_ptr metadata,
-                                           jr_uncompressed_ptr dest) {
+void JpegRBenchmark::BenchmarkApplyGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* map,
+                                           uhdr_gainmap_metadata_ext_t* metadata,
+                                           uhdr_raw_image_t* dest) {
   Profiler profileRecMap;
   profileRecMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR, applyGainMap(yuv420Image, map, metadata, ULTRAHDR_OUTPUT_HDR_HLG,
-                                           metadata->maxContentBoost /* displayBoost */, dest));
+    ASSERT_EQ(UHDR_CODEC_OK, applyGainMap(yuv420Image, map, metadata, UHDR_CT_HLG,
+                                          UHDR_IMG_FMT_32bppRGBA1010102, FLT_MAX, dest)
+                                 .error_code);
   }
   profileRecMap.timerStop();
-  ALOGE("Apply Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width, yuv420Image->height,
+  ALOGV("Apply Gain Map:- Res = %u x %u, time = %f ms", yuv420Image->w, yuv420Image->h,
         profileRecMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
@@ -2256,13 +2256,10 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.setImageColorGamut(ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709));
   ASSERT_TRUE(rawImg420.allocateMemory());
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
-  ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
-  jpegr_uncompressed_struct map;
-  map.data = NULL;
-  map.width = 0;
-  map.height = 0;
-  map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+
+  uhdr_raw_image_t hdr_intent, sdr_intent;
+
   {
     auto rawImg = rawImgP010.getImageHandle();
     if (rawImg->luma_stride == 0) rawImg->luma_stride = rawImg->width;
@@ -2271,6 +2268,18 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
       rawImg->chroma_data = data + rawImg->luma_stride * rawImg->height;
       rawImg->chroma_stride = rawImg->luma_stride;
     }
+    hdr_intent.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    hdr_intent.cg = UHDR_CG_BT_2100;
+    hdr_intent.ct = UHDR_CT_HLG;
+    hdr_intent.range = UHDR_CR_LIMITED_RANGE;
+    hdr_intent.w = rawImg->width;
+    hdr_intent.h = rawImg->height;
+    hdr_intent.planes[UHDR_PLANE_Y] = rawImg->data;
+    hdr_intent.stride[UHDR_PLANE_Y] = rawImg->luma_stride;
+    hdr_intent.planes[UHDR_PLANE_UV] = rawImg->chroma_data;
+    hdr_intent.stride[UHDR_PLANE_UV] = rawImg->chroma_stride;
+    hdr_intent.planes[UHDR_PLANE_V] = nullptr;
+    hdr_intent.stride[UHDR_PLANE_V] = 0;
   }
   {
     auto rawImg = rawImg420.getImageHandle();
@@ -2280,27 +2289,57 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
       rawImg->chroma_data = data + rawImg->luma_stride * rawImg->height;
       rawImg->chroma_stride = rawImg->luma_stride / 2;
     }
+    sdr_intent.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    sdr_intent.cg = UHDR_CG_DISPLAY_P3;
+    sdr_intent.ct = UHDR_CT_SRGB;
+    sdr_intent.range = rawImg->colorRange;
+    sdr_intent.w = rawImg->width;
+    sdr_intent.h = rawImg->height;
+    sdr_intent.planes[UHDR_PLANE_Y] = rawImg->data;
+    sdr_intent.stride[UHDR_PLANE_Y] = rawImg->luma_stride;
+    sdr_intent.planes[UHDR_PLANE_U] = rawImg->chroma_data;
+    sdr_intent.stride[UHDR_PLANE_U] = rawImg->chroma_stride;
+    uint8_t* data = reinterpret_cast<uint8_t*>(rawImg->chroma_data);
+    data += (rawImg->height * rawImg->chroma_stride) / 2;
+    sdr_intent.planes[UHDR_PLANE_V] = data;
+    sdr_intent.stride[UHDR_PLANE_V] = rawImg->chroma_stride;
   }
 
+  std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+
+#ifdef UHDR_ENABLE_GLES
+  uhdr_opengl_ctxt_t glCtxt;
+  glCtxt.init_opengl_ctxt();
+  JpegRBenchmark benchmark(glCtxt.mErrorStatus.error_code == UHDR_CODEC_OK ? &glCtxt : nullptr);
+#else
   JpegRBenchmark benchmark;
-  ASSERT_NO_FATAL_FAILURE(benchmark.BenchmarkGenerateGainMap(
-      rawImg420.getImageHandle(), rawImgP010.getImageHandle(), &metadata, &map));
+#endif
+
+  ASSERT_NO_FATAL_FAILURE(
+      benchmark.BenchmarkGenerateGainMap(&sdr_intent, &hdr_intent, &metadata, gainmap));
 
   const int dstSize = kImageWidth * kImageWidth * 4;
   auto bufferDst = std::make_unique<uint8_t[]>(dstSize);
-  jpegr_uncompressed_struct dest;
-  dest.data = bufferDst.get();
-  dest.width = 0;
-  dest.height = 0;
-  dest.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  uhdr_raw_image_t output;
+  output.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  output.cg = UHDR_CG_UNSPECIFIED;
+  output.ct = UHDR_CT_UNSPECIFIED;
+  output.range = UHDR_CR_UNSPECIFIED;
+  output.w = kImageWidth;
+  output.h = kImageHeight;
+  output.planes[UHDR_PLANE_PACKED] = bufferDst.get();
+  output.stride[UHDR_PLANE_PACKED] = kImageWidth;
+  output.planes[UHDR_PLANE_U] = nullptr;
+  output.stride[UHDR_PLANE_U] = 0;
+  output.planes[UHDR_PLANE_V] = nullptr;
+  output.stride[UHDR_PLANE_V] = 0;
 
   ASSERT_NO_FATAL_FAILURE(
-      benchmark.BenchmarkApplyGainMap(rawImg420.getImageHandle(), &map, &metadata, &dest));
+      benchmark.BenchmarkApplyGainMap(&sdr_intent, gainmap.get(), &metadata, &output));
 
-  if (map.data) {
-    delete[] static_cast<uint8_t*>(map.data);
-    map.data = nullptr;
-  }
+#ifdef UHDR_ENABLE_GLES
+  glCtxt.delete_opengl_ctxt();
+#endif
 }
 
 }  // namespace ultrahdr

@@ -40,17 +40,17 @@ cc_library {
         "lib/include",
     ],
     local_include_dirs: ["lib/include"],
-
+    cflags: ["-DUHDR_ENABLE_INTRINSICS"],
     srcs: [
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
         "lib/src/gainmapmath.cpp",
+        "lib/src/gainmapmetadata.cpp",
         "lib/src/jpegrutils.cpp",
         "lib/src/multipictureformat.cpp",
         "lib/src/editorhelper.cpp",
         "lib/src/ultrahdr_api.cpp",
     ],
-
     shared_libs: [
         "libimage_io",
         "libjpeg",
@@ -59,38 +59,72 @@ cc_library {
         "liblog",
     ],
     rtti: true,
+    target: {
+        windows: {
+            enabled: true,
+        },
+        android: {
+            srcs: [
+                "lib/src/gpu/applygainmap_gl.cpp",
+                "lib/src/gpu/uhdr_gl_utils.cpp",
+            ],
+            cflags: ["-DUHDR_ENABLE_GLES"],
+            shared_libs: [
+                "libEGL",
+                "libGLESv3",
+            ],
+        },
+    },
+    arch: {
+        arm: {
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+                "lib/src/dsp/arm/gainmapmath_neon.cpp",
+            ],
+        },
+        arm64: {
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+                "lib/src/dsp/arm/gainmapmath_neon.cpp",
+            ],
+        },
+    },
 }
 
 cc_library {
     name: "libjpegencoder",
     host_supported: true,
     vendor_available: true,
-
     shared_libs: [
         "libjpeg",
         "liblog",
     ],
-
     export_include_dirs: ["lib/include"],
-
     srcs: [
         "lib/src/jpegencoderhelper.cpp",
     ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 cc_library {
     name: "libjpegdecoder",
     host_supported: true,
     vendor_available: true,
-
     shared_libs: [
         "libjpeg",
         "liblog",
     ],
-
     export_include_dirs: ["lib/include"],
-
     srcs: [
         "lib/src/jpegdecoderhelper.cpp",
     ],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }

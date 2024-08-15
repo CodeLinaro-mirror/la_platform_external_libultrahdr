@@ -20,7 +20,6 @@
 #include <iostream>
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegencoderhelper.h"
 
 namespace ultrahdr {
@@ -29,10 +28,12 @@ namespace ultrahdr {
 #define ALIGNED_IMAGE "/data/local/tmp/minnie-320x240.yu12"
 #define SINGLE_CHANNEL_IMAGE "/data/local/tmp/minnie-320x240.y"
 #define UNALIGNED_IMAGE "/data/local/tmp/minnie-318x240.yu12"
+#define RGB_IMAGE "/data/local/tmp/minnie-320x240.rgb"
 #else
 #define ALIGNED_IMAGE "./data/minnie-320x240.yu12"
 #define SINGLE_CHANNEL_IMAGE "./data/minnie-320x240.y"
 #define UNALIGNED_IMAGE "./data/minnie-318x240.yu12"
+#define RGB_IMAGE "./data/minnie-320x240.rgb"
 #endif
 #define ALIGNED_IMAGE_WIDTH 320
 #define ALIGNED_IMAGE_HEIGHT 240
@@ -56,7 +57,7 @@ class JpegEncoderHelperTest : public testing::Test {
   virtual void SetUp();
   virtual void TearDown();
 
-  Image mAlignedImage, mUnalignedImage, mSingleChannelImage;
+  Image mAlignedImage, mUnalignedImage, mSingleChannelImage, mRgbImage;
 };
 
 JpegEncoderHelperTest::JpegEncoderHelperTest() {}
@@ -92,34 +93,70 @@ void JpegEncoderHelperTest::SetUp() {
   }
   mSingleChannelImage.width = SINGLE_CHANNEL_IMAGE_WIDTH;
   mSingleChannelImage.height = SINGLE_CHANNEL_IMAGE_HEIGHT;
+  if (!loadFile(RGB_IMAGE, &mRgbImage)) {
+    FAIL() << "Load file " << RGB_IMAGE << " failed";
+  }
+  mRgbImage.width = ALIGNED_IMAGE_WIDTH;
+  mRgbImage.height = ALIGNED_IMAGE_HEIGHT;
 }
 
 void JpegEncoderHelperTest::TearDown() {}
 
 TEST_F(JpegEncoderHelperTest, encodeAlignedImage) {
   JpegEncoderHelper encoder;
-  EXPECT_TRUE(encoder.compressImage(
-      mAlignedImage.buffer.get(),
-      mAlignedImage.buffer.get() + mAlignedImage.width * mAlignedImage.height, mAlignedImage.width,
-      mAlignedImage.height, mAlignedImage.width, mAlignedImage.width / 2, JPEG_QUALITY, NULL, 0));
+  const uint8_t* yPlane = mAlignedImage.buffer.get();
+  const uint8_t* uPlane = yPlane + mAlignedImage.width * mAlignedImage.height;
+  const uint8_t* vPlane = uPlane + mAlignedImage.width * mAlignedImage.height / 4;
+  const uint8_t* planes[3]{yPlane, uPlane, vPlane};
+  const size_t strides[3]{mAlignedImage.width, mAlignedImage.width / 2, mAlignedImage.width / 2};
+  EXPECT_EQ(encoder
+                .compressImage(planes, strides, mAlignedImage.width, mAlignedImage.height,
+                               UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0)
+                .error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegEncoderHelperTest, encodeUnalignedImage) {
   JpegEncoderHelper encoder;
-  EXPECT_TRUE(encoder.compressImage(
-      mUnalignedImage.buffer.get(),
-      mUnalignedImage.buffer.get() + mUnalignedImage.width * mUnalignedImage.height,
-      mUnalignedImage.width, mUnalignedImage.height, mUnalignedImage.width,
-      mUnalignedImage.width / 2, JPEG_QUALITY, NULL, 0));
+  const uint8_t* yPlane = mUnalignedImage.buffer.get();
+  const uint8_t* uPlane = yPlane + mUnalignedImage.width * mUnalignedImage.height;
+  const uint8_t* vPlane = uPlane + mUnalignedImage.width * mUnalignedImage.height / 4;
+  const uint8_t* planes[3]{yPlane, uPlane, vPlane};
+  const size_t strides[3]{mUnalignedImage.width, mUnalignedImage.width / 2,
+                          mUnalignedImage.width / 2};
+  EXPECT_EQ(encoder
+                .compressImage(planes, strides, mUnalignedImage.width, mUnalignedImage.height,
+                               UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0)
+                .error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
   JpegEncoderHelper encoder;
-  EXPECT_TRUE(encoder.compressImage(mSingleChannelImage.buffer.get(), nullptr,
-                                    mSingleChannelImage.width, mSingleChannelImage.height,
-                                    mSingleChannelImage.width, 0, JPEG_QUALITY, NULL, 0));
+  const uint8_t* yPlane = mSingleChannelImage.buffer.get();
+  const uint8_t* planes[1]{yPlane};
+  const size_t strides[1]{mSingleChannelImage.width};
+  EXPECT_EQ(
+      encoder
+          .compressImage(planes, strides, mSingleChannelImage.width, mSingleChannelImage.height,
+                         UHDR_IMG_FMT_8bppYCbCr400, JPEG_QUALITY, NULL, 0)
+          .error_code,
+      UHDR_CODEC_OK);
+  ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
+}
+
+TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
+  JpegEncoderHelper encoder;
+  const uint8_t* rgbPlane = mRgbImage.buffer.get();
+  const uint8_t* planes[1]{rgbPlane};
+  const size_t strides[1]{mRgbImage.width};
+  EXPECT_EQ(encoder
+                .compressImage(planes, strides, mRgbImage.width, mRgbImage.height,
+                               UHDR_IMG_FMT_24bppRGB888, JPEG_QUALITY, NULL, 0)
+                .error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 

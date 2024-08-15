@@ -33,7 +33,6 @@
 #define Endian_SwapBE16(n) (n)
 #endif
 
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/jpegrutils.h"
@@ -160,11 +159,11 @@ static inline int float_saturate2int(float x) {
   return (int)x;
 }
 
-static Fixed float_round_to_fixed(float x) {
+static inline Fixed float_round_to_fixed(float x) {
   return float_saturate2int((float)floor((double)x * Fixed1 + 0.5));
 }
 
-static uint16_t float_round_to_unorm16(float x) {
+static inline uint16_t float_round_to_unorm16(float x) {
   x = x * 65535.f + 0.5;
   if (x > 65535) return 65535;
   if (x < 0) return 0;
@@ -227,12 +226,12 @@ class IccHelper {
   static constexpr size_t kNumChannels = 3;
 
   static std::shared_ptr<DataStruct> write_text_tag(const char* text);
-  static std::string get_desc_string(const ultrahdr_transfer_function tf,
-                                     const ultrahdr_color_gamut gamut);
+  static std::string get_desc_string(const uhdr_color_transfer_t tf,
+                                     const uhdr_color_gamut_t gamut);
   static std::shared_ptr<DataStruct> write_xyz_tag(float x, float y, float z);
   static std::shared_ptr<DataStruct> write_trc_tag(const int table_entries, const void* table_16);
   static std::shared_ptr<DataStruct> write_trc_tag(const TransferFunction& fn);
-  static float compute_tone_map_gain(const ultrahdr_transfer_function tf, float L);
+  static float compute_tone_map_gain(const uhdr_color_transfer_t tf, float L);
   static std::shared_ptr<DataStruct> write_cicp_tag(uint32_t color_primaries,
                                                     uint32_t transfer_characteristics);
   static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
@@ -249,13 +248,14 @@ class IccHelper {
  public:
   // Output includes JPEG embedding identifier and chunk information, but not
   // APPx information.
-  static std::shared_ptr<DataStruct> writeIccProfile(const ultrahdr_transfer_function tf,
-                                                     const ultrahdr_color_gamut gamut);
+  static std::shared_ptr<DataStruct> writeIccProfile(const uhdr_color_transfer_t tf,
+                                                     const uhdr_color_gamut_t gamut);
   // NOTE: this function is not robust; it can infer gamuts that IccHelper
   // writes out but should not be considered a reference implementation for
   // robust parsing of ICC profiles or their gamuts.
-  static ultrahdr_color_gamut readIccColorGamut(void* icc_data, size_t icc_size);
+  static uhdr_color_gamut_t readIccColorGamut(void* icc_data, size_t icc_size);
 };
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_ICC_H

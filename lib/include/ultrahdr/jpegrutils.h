@@ -17,9 +17,12 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
+// TODO (dichenzhang): This is old version metadata, new version can be found in
+// https://drive.google.com/file/d/1yUGmjGytRuBa2vpr9eM5Uu8CVhyyddjp/view?resourcekey=0-HGzFrzPQzu5FNYLRAJXQBA
+// and in gainmapmetadata.h/.cpp
+// This file is kept in order to keep the backward compatibility.
 namespace ultrahdr {
 
 static constexpr uint32_t EndianSwap32(uint32_t value) {
@@ -30,7 +33,6 @@ static inline uint16_t EndianSwap16(uint16_t value) {
   return static_cast<uint16_t>((value >> 8) | ((value & 0xFF) << 8));
 }
 
-struct ultrahdr_metadata_struct;
 /*
  * Mutable data structure. Holds information for metadata.
  */
@@ -60,9 +62,10 @@ class DataStruct {
  * @param source source of data being written.
  * @param length length of the data to be written.
  * @param position cursor in desitination where the data is to be written.
- * @return status of succeed or error code.
+ * @return success or error code.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int& position);
+uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, int length,
+                        int& position);
 
 /*
  * Parses XMP packet and fills metadata with data from XMP
@@ -70,9 +73,10 @@ status_t Write(jr_compressed_ptr destination, const void* source, size_t length,
  * @param xmp_data pointer to XMP packet
  * @param xmp_size size of XMP packet
  * @param metadata place to store HDR metadata values
- * @return true if metadata is successfully retrieved, false otherwise
+ * @return success or error code.
  */
-bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_struct* metadata);
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
+                                     uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
  * This method generates XMP metadata for the primary image.
@@ -115,10 +119,11 @@ bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_st
  * @return XMP metadata in type of string
  */
 std::string generateXmpForPrimaryImage(int secondary_image_length,
-                                       ultrahdr_metadata_struct& metadata);
+                                       uhdr_gainmap_metadata_ext_t& metadata);
 
 /*
  * This method generates XMP metadata for the recovery map image.
+ * Link: https://developer.android.com/media/platform/hdr-image-format#XMP-attributes
  *
  * below is an example of the XMP metadata that this function generates where
  * max_content_boost = 8.0
@@ -146,7 +151,8 @@ std::string generateXmpForPrimaryImage(int secondary_image_length,
  * @param metadata JPEG/R metadata to encode as XMP
  * @return XMP metadata in type of string
  */
-std::string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata);
+std::string generateXmpForSecondaryImage(uhdr_gainmap_metadata_ext_t& metadata);
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_JPEGRUTILS_H

@@ -14,68 +14,89 @@
  * limitations under the License.
  */
 
+#include <errno.h>
+#include <setjmp.h>
+
+#include <cmath>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <string>
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegencoderhelper.h"
 
 namespace ultrahdr {
 
-// The destination manager that can access |mResultBuffer| in JpegEncoderHelper.
-struct destination_mgr {
-  struct jpeg_destination_mgr mgr;
-  JpegEncoderHelper* encoder;
+/*!\brief map of sub sampling format and jpeg h_samp_factor, v_samp_factor */
+std::map<uhdr_img_fmt_t, std::vector<int>> sample_factors = {
+    {UHDR_IMG_FMT_8bppYCbCr400,
+     {1 /*h0*/, 1 /*v0*/, 0 /*h1*/, 0 /*v1*/, 0 /*h2*/, 0 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
+    {UHDR_IMG_FMT_24bppYCbCr444,
+     {1 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
+    {UHDR_IMG_FMT_16bppYCbCr440,
+     {1 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 2 /*maxv*/}},
+    {UHDR_IMG_FMT_16bppYCbCr422,
+     {2 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 2 /*maxh*/, 1 /*maxv*/}},
+    {UHDR_IMG_FMT_12bppYCbCr420,
+     {2 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 2 /*maxh*/, 2 /*maxv*/}},
+    {UHDR_IMG_FMT_12bppYCbCr411,
+     {4 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 4 /*maxh*/, 1 /*maxv*/}},
+    {UHDR_IMG_FMT_10bppYCbCr410,
+     {4 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 4 /*maxh*/, 2 /*maxv*/}},
+    {UHDR_IMG_FMT_24bppRGB888,
+     {1 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
 };
 
-JpegEncoderHelper::JpegEncoderHelper() {}
+/*!\brief jpeg encoder library destination manager callback functions implementation */
 
-JpegEncoderHelper::~JpegEncoderHelper() {}
-
-bool JpegEncoderHelper::compressImage(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width,
-                                      int height, int lumaStride, int chromaStride, int quality,
-                                      const void* iccBuffer, unsigned int iccSize) {
-  mResultBuffer.clear();
-  if (!encode(yBuffer, uvBuffer, width, height, lumaStride, chromaStride, quality, iccBuffer,
-              iccSize)) {
-    return false;
-  }
-  ALOGV("Compressed JPEG: %d[%dx%d] -> %zu bytes", (width * height * 12) / 8, width, height,
-        mResultBuffer.size());
-  return true;
+/*!\brief  called by jpeg_start_compress() before any data is actually written. This function is
+ * expected to initialize fields next_output_byte (place to write encoded output) and
+ * free_in_buffer (size of the buffer supplied) of jpeg destination manager. free_in_buffer must
+ * be initialized to a positive value.*/
+static void initDestination(j_compress_ptr cinfo) {
+  destination_mgr_impl* dest = reinterpret_cast<destination_mgr_impl*>(cinfo->dest);
+  std::vector<JOCTET>& buffer = dest->mResultBuffer;
+  buffer.resize(dest->kBlockSize);
+  dest->next_output_byte = &buffer[0];
+  dest->free_in_buffer = buffer.size();
 }
 
-void* JpegEncoderHelper::getCompressedImagePtr() { return mResultBuffer.data(); }
-
-size_t JpegEncoderHelper::getCompressedImageSize() { return mResultBuffer.size(); }
-
-void JpegEncoderHelper::initDestination(j_compress_ptr cinfo) {
-  destination_mgr* dest = reinterpret_cast<destination_mgr*>(cinfo->dest);
-  std::vector<JOCTET>& buffer = dest->encoder->mResultBuffer;
-  buffer.resize(kBlockSize);
-  dest->mgr.next_output_byte = &buffer[0];
-  dest->mgr.free_in_buffer = buffer.size();
-}
-
-boolean JpegEncoderHelper::emptyOutputBuffer(j_compress_ptr cinfo) {
-  destination_mgr* dest = reinterpret_cast<destination_mgr*>(cinfo->dest);
-  std::vector<JOCTET>& buffer = dest->encoder->mResultBuffer;
+/*!\brief  called if buffer provided for storing encoded data is exhausted during encoding. This
+ * function is expected to consume the encoded output and provide fresh buffer to continue
+ * encoding. */
+static boolean emptyOutputBuffer(j_compress_ptr cinfo) {
+  destination_mgr_impl* dest = reinterpret_cast<destination_mgr_impl*>(cinfo->dest);
+  std::vector<JOCTET>& buffer = dest->mResultBuffer;
   size_t oldsize = buffer.size();
-  buffer.resize(oldsize + kBlockSize);
-  dest->mgr.next_output_byte = &buffer[oldsize];
-  dest->mgr.free_in_buffer = kBlockSize;
+  buffer.resize(oldsize + dest->kBlockSize);
+  dest->next_output_byte = &buffer[oldsize];
+  dest->free_in_buffer = dest->kBlockSize;
   return true;
 }
 
-void JpegEncoderHelper::terminateDestination(j_compress_ptr cinfo) {
-  destination_mgr* dest = reinterpret_cast<destination_mgr*>(cinfo->dest);
-  std::vector<JOCTET>& buffer = dest->encoder->mResultBuffer;
-  buffer.resize(buffer.size() - dest->mgr.free_in_buffer);
+/*!\brief  called by jpeg_finish_compress() to flush out all the remaining encoded data. client
+ * can use either next_output_byte or free_in_buffer to determine how much data is in the buffer.
+ */
+static void terminateDestination(j_compress_ptr cinfo) {
+  destination_mgr_impl* dest = reinterpret_cast<destination_mgr_impl*>(cinfo->dest);
+  std::vector<JOCTET>& buffer = dest->mResultBuffer;
+  buffer.resize(buffer.size() - dest->free_in_buffer);
 }
 
-void JpegEncoderHelper::outputErrorMessage(j_common_ptr cinfo) {
+/*!\brief module for managing error */
+struct jpeg_error_mgr_impl : jpeg_error_mgr {
+  jmp_buf setjmp_buffer;
+};
+
+/*!\brief jpeg encoder library error manager callback function implementations */
+static void jpegrerror_exit(j_common_ptr cinfo) {
+  jpeg_error_mgr_impl* err = reinterpret_cast<jpeg_error_mgr_impl*>(cinfo->err);
+  longjmp(err->setjmp_buffer, 1);
+}
+
+/* receive most recent jpeg error message and print */
+static void outputErrorMessage(j_common_ptr cinfo) {
   char buffer[JMSG_LENGTH_MAX];
 
   /* Create the message */
@@ -83,205 +104,197 @@ void JpegEncoderHelper::outputErrorMessage(j_common_ptr cinfo) {
   ALOGE("%s\n", buffer);
 }
 
-bool JpegEncoderHelper::encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width,
-                               int height, int lumaStride, int chromaStride, int quality,
-                               const void* iccBuffer, unsigned int iccSize) {
-  jpeg_compress_struct cinfo;
-  jpeg_error_mgr jerr;
+uhdr_error_info_t JpegEncoderHelper::compressImage(const uhdr_raw_image_t* img, const int qfactor,
+                                                   const void* iccBuffer,
+                                                   const unsigned int iccSize) {
+  const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]),
+                           reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_U]),
+                           reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_V])};
+  const size_t strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
+                          img->stride[UHDR_PLANE_V]};
+  return compressImage(planes, strides, img->w, img->h, img->fmt, qfactor, iccBuffer, iccSize);
+}
 
-  cinfo.err = jpeg_std_error(&jerr);
-  cinfo.err->output_message = &outputErrorMessage;
-  jpeg_create_compress(&cinfo);
-  setJpegDestination(&cinfo);
-  setJpegCompressStruct(width, height, quality, &cinfo, uvBuffer == nullptr);
-  jpeg_start_compress(&cinfo, TRUE);
-  if (iccBuffer != nullptr && iccSize > 0) {
-    jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+uhdr_error_info_t JpegEncoderHelper::compressImage(const uint8_t* planes[3],
+                                                   const size_t strides[3], const int width,
+                                                   const int height, const uhdr_img_fmt_t format,
+                                                   const int qfactor, const void* iccBuffer,
+                                                   const unsigned int iccSize) {
+  return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
+}
+
+uhdr_compressed_image_t JpegEncoderHelper::getCompressedImage() {
+  uhdr_compressed_image_t img;
+
+  img.data = mDestMgr.mResultBuffer.data();
+  img.capacity = img.data_sz = mDestMgr.mResultBuffer.size();
+  img.cg = UHDR_CG_UNSPECIFIED;
+  img.ct = UHDR_CT_UNSPECIFIED;
+  img.range = UHDR_CR_UNSPECIFIED;
+
+  return img;
+}
+
+uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3],
+                                            const int width, const int height,
+                                            const uhdr_img_fmt_t format, const int qfactor,
+                                            const void* iccBuffer, const unsigned int iccSize) {
+  jpeg_compress_struct cinfo;
+  jpeg_error_mgr_impl myerr;
+  uhdr_error_info_t status = g_no_error;
+
+  if (sample_factors.find(format) == sample_factors.end()) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "unrecognized input format %d", format);
+    return status;
   }
-  bool status = cinfo.num_components == 1
-                    ? compressY(&cinfo, yBuffer, lumaStride)
-                    : compressYuv(&cinfo, yBuffer, uvBuffer, lumaStride, chromaStride);
+  std::vector<int>& factors = sample_factors.find(format)->second;
+
+  cinfo.err = jpeg_std_error(&myerr);
+  myerr.error_exit = jpegrerror_exit;
+  myerr.output_message = outputErrorMessage;
+
+  if (0 == setjmp(myerr.setjmp_buffer)) {
+    jpeg_create_compress(&cinfo);
+
+    // initialize destination manager
+    mDestMgr.init_destination = &initDestination;
+    mDestMgr.empty_output_buffer = &emptyOutputBuffer;
+    mDestMgr.term_destination = &terminateDestination;
+    mDestMgr.mResultBuffer.clear();
+    cinfo.dest = reinterpret_cast<struct jpeg_destination_mgr*>(&mDestMgr);
+
+    // initialize configuration parameters
+    cinfo.image_width = width;
+    cinfo.image_height = height;
+    if (format == UHDR_IMG_FMT_24bppRGB888) {
+      cinfo.input_components = 3;
+      cinfo.in_color_space = JCS_RGB;
+    } else {
+      if (format == UHDR_IMG_FMT_8bppYCbCr400) {
+        cinfo.input_components = 1;
+        cinfo.in_color_space = JCS_GRAYSCALE;
+      } else {
+        cinfo.input_components = 3;
+        cinfo.in_color_space = JCS_YCbCr;
+      }
+    }
+    jpeg_set_defaults(&cinfo);
+    jpeg_set_quality(&cinfo, qfactor, TRUE);
+    for (int i = 0; i < cinfo.num_components; i++) {
+      cinfo.comp_info[i].h_samp_factor = factors[i * 2];
+      cinfo.comp_info[i].v_samp_factor = factors[i * 2 + 1];
+      mPlaneWidth[i] =
+          std::ceil(((float)cinfo.image_width * cinfo.comp_info[i].h_samp_factor) / factors[6]);
+      mPlaneHeight[i] =
+          std::ceil(((float)cinfo.image_height * cinfo.comp_info[i].v_samp_factor) / factors[7]);
+    }
+    if (format != UHDR_IMG_FMT_24bppRGB888) cinfo.raw_data_in = TRUE;
+    cinfo.dct_method = JDCT_ISLOW;
+
+    // start compress
+    jpeg_start_compress(&cinfo, TRUE);
+    if (iccBuffer != nullptr && iccSize > 0) {
+      jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+    }
+    if (format == UHDR_IMG_FMT_24bppRGB888) {
+      while (cinfo.next_scanline < cinfo.image_height) {
+        JSAMPROW row_pointer[]{
+            const_cast<JSAMPROW>(&planes[0][cinfo.next_scanline * strides[0] * 3])};
+        JDIMENSION processed = jpeg_write_scanlines(&cinfo, row_pointer, 1);
+        if (1 != processed) {
+          status.error_code = UHDR_CODEC_ERROR;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "jpeg_read_scanlines returned %d, expected %d", processed, 1);
+          jpeg_destroy_compress(&cinfo);
+          return status;
+        }
+      }
+    } else {
+      status = compressYCbCr(&cinfo, planes, strides);
+      if (status.error_code != UHDR_CODEC_OK) {
+        jpeg_destroy_compress(&cinfo);
+        return status;
+      }
+    }
+  } else {
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    cinfo.err->format_message((j_common_ptr)&cinfo, status.detail);
+    jpeg_destroy_compress(&cinfo);
+    return status;
+  }
+
   jpeg_finish_compress(&cinfo);
   jpeg_destroy_compress(&cinfo);
-
   return status;
 }
 
-void JpegEncoderHelper::setJpegDestination(jpeg_compress_struct* cinfo) {
-  destination_mgr* dest = static_cast<struct destination_mgr*>(
-      (*cinfo->mem->alloc_small)((j_common_ptr)cinfo, JPOOL_PERMANENT, sizeof(destination_mgr)));
-  dest->encoder = this;
-  dest->mgr.init_destination = &initDestination;
-  dest->mgr.empty_output_buffer = &emptyOutputBuffer;
-  dest->mgr.term_destination = &terminateDestination;
-  cinfo->dest = reinterpret_cast<struct jpeg_destination_mgr*>(dest);
-}
+uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
+                                                   const uint8_t* planes[3],
+                                                   const size_t strides[3]) {
+  JSAMPROW mcuRows[kMaxNumComponents][2 * DCTSIZE];
+  JSAMPROW mcuRowsTmp[kMaxNumComponents][2 * DCTSIZE];
+  size_t alignedPlaneWidth[kMaxNumComponents]{};
+  JSAMPARRAY subImage[kMaxNumComponents];
 
-void JpegEncoderHelper::setJpegCompressStruct(int width, int height, int quality,
-                                              jpeg_compress_struct* cinfo, bool isSingleChannel) {
-  cinfo->image_width = width;
-  cinfo->image_height = height;
-  cinfo->input_components = isSingleChannel ? 1 : 3;
-  cinfo->in_color_space = isSingleChannel ? JCS_GRAYSCALE : JCS_YCbCr;
-  jpeg_set_defaults(cinfo);
-  jpeg_set_quality(cinfo, quality, TRUE);
-  cinfo->raw_data_in = TRUE;
-  cinfo->dct_method = JDCT_ISLOW;
-  cinfo->comp_info[0].h_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
-  cinfo->comp_info[0].v_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
-  for (int i = 1; i < cinfo->num_components; i++) {
-    cinfo->comp_info[i].h_samp_factor = 1;
-    cinfo->comp_info[i].v_samp_factor = 1;
-  }
-}
-
-bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* yBuffer,
-                                    const uint8_t* uvBuffer, int lumaStride, int chromaStride) {
-  size_t chroma_plane_size = chromaStride * cinfo->image_height / 2;
-  uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
-  uint8_t* u_plane = const_cast<uint8_t*>(uvBuffer);
-  uint8_t* v_plane = const_cast<uint8_t*>(u_plane + chroma_plane_size);
-
-  const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-  const bool need_luma_padding = (lumaStride < aligned_width);
-  const int aligned_chroma_width = ALIGNM(cinfo->image_width / 2, kCompressBatchSize / 2);
-  const bool need_chroma_padding = (chromaStride < aligned_chroma_width);
-
-  std::unique_ptr<uint8_t[]> empty = nullptr;
-  std::unique_ptr<uint8_t[]> y_mcu_row = nullptr;
-  std::unique_ptr<uint8_t[]> cb_mcu_row = nullptr;
-  std::unique_ptr<uint8_t[]> cr_mcu_row = nullptr;
-  uint8_t* y_mcu_row_ptr = nullptr;
-  uint8_t* cb_mcu_row_ptr = nullptr;
-  uint8_t* cr_mcu_row_ptr = nullptr;
-
-  JSAMPROW y[kCompressBatchSize];
-  JSAMPROW cb[kCompressBatchSize / 2];
-  JSAMPROW cr[kCompressBatchSize / 2];
-  JSAMPARRAY planes[3]{y, cb, cr};
-
-  if (cinfo->image_height % kCompressBatchSize != 0) {
-    empty = std::make_unique<uint8_t[]>(aligned_width);
-    memset(empty.get(), 0, aligned_width);
-  }
-
-  if (need_luma_padding) {
-    size_t mcu_row_size = aligned_width * kCompressBatchSize;
-    y_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
-    y_mcu_row_ptr = y_mcu_row.get();
-    uint8_t* tmp = y_mcu_row_ptr;
-    for (int i = 0; i < kCompressBatchSize; ++i, tmp += aligned_width) {
-      memset(tmp + cinfo->image_width, 0, aligned_width - cinfo->image_width);
+  for (int i = 0; i < cinfo->num_components; i++) {
+    alignedPlaneWidth[i] = ALIGNM(mPlaneWidth[i], DCTSIZE);
+    if (strides[i] < alignedPlaneWidth[i]) {
+      mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i] * DCTSIZE *
+                                                     cinfo->comp_info[i].v_samp_factor);
+      uint8_t* mem = mPlanesMCURow[i].get();
+      for (int j = 0; j < DCTSIZE * cinfo->comp_info[i].v_samp_factor;
+           j++, mem += alignedPlaneWidth[i]) {
+        mcuRowsTmp[i][j] = mem;
+        if (i > 0) {
+          memset(mem + mPlaneWidth[i], 128, alignedPlaneWidth[i] - mPlaneWidth[i]);
+        }
+      }
+    } else if (mPlaneHeight[i] % DCTSIZE != 0) {
+      mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i]);
+      if (i > 0) {
+        memset(mPlanesMCURow[i].get(), 128, alignedPlaneWidth[i]);
+      }
     }
-  }
-
-  if (need_chroma_padding) {
-    size_t mcu_row_size = aligned_chroma_width * kCompressBatchSize / 2;
-    cb_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
-    cb_mcu_row_ptr = cb_mcu_row.get();
-    cr_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
-    cr_mcu_row_ptr = cr_mcu_row.get();
-    uint8_t* tmp1 = cb_mcu_row_ptr;
-    uint8_t* tmp2 = cr_mcu_row_ptr;
-    for (int i = 0; i < kCompressBatchSize / 2;
-         ++i, tmp1 += aligned_chroma_width, tmp2 += aligned_chroma_width) {
-      memset(tmp1 + cinfo->image_width / 2, 0, aligned_chroma_width - (cinfo->image_width / 2));
-      memset(tmp2 + cinfo->image_width / 2, 0, aligned_chroma_width - (cinfo->image_width / 2));
-    }
+    subImage[i] = strides[i] < alignedPlaneWidth[i] ? mcuRowsTmp[i] : mcuRows[i];
   }
 
   while (cinfo->next_scanline < cinfo->image_height) {
-    for (int i = 0; i < kCompressBatchSize; ++i) {
-      size_t scanline = cinfo->next_scanline + i;
-      if (scanline < cinfo->image_height) {
-        y[i] = y_plane + scanline * lumaStride;
-        if (need_luma_padding) {
-          uint8_t* tmp = y_mcu_row_ptr + i * aligned_width;
-          memcpy(tmp, y[i], cinfo->image_width);
-          y[i] = tmp;
+    JDIMENSION mcu_scanline_start[kMaxNumComponents];
+
+    for (int i = 0; i < cinfo->num_components; i++) {
+      mcu_scanline_start[i] =
+          std::ceil(((float)cinfo->next_scanline * cinfo->comp_info[i].v_samp_factor) /
+                    cinfo->max_v_samp_factor);
+
+      for (int j = 0; j < cinfo->comp_info[i].v_samp_factor * DCTSIZE; j++) {
+        JDIMENSION scanline = mcu_scanline_start[i] + j;
+
+        if (scanline < mPlaneHeight[i]) {
+          mcuRows[i][j] = const_cast<uint8_t*>(planes[i] + scanline * strides[i]);
+          if (strides[i] < alignedPlaneWidth[i]) {
+            memcpy(mcuRowsTmp[i][j], mcuRows[i][j], mPlaneWidth[i]);
+          }
+        } else {
+          mcuRows[i][j] = mPlanesMCURow[i].get();
         }
-      } else {
-        y[i] = empty.get();
       }
     }
-    // cb, cr only have half scanlines
-    for (int i = 0; i < kCompressBatchSize / 2; ++i) {
-      size_t scanline = cinfo->next_scanline / 2 + i;
-      if (scanline < cinfo->image_height / 2) {
-        int offset = scanline * chromaStride;
-        cb[i] = u_plane + offset;
-        cr[i] = v_plane + offset;
-        if (need_chroma_padding) {
-          uint8_t* tmp = cb_mcu_row_ptr + i * aligned_chroma_width;
-          memcpy(tmp, cb[i], cinfo->image_width / 2);
-          cb[i] = tmp;
-          tmp = cr_mcu_row_ptr + i * aligned_chroma_width;
-          memcpy(tmp, cr[i], cinfo->image_width / 2);
-          cr[i] = tmp;
-        }
-      } else {
-        cb[i] = cr[i] = empty.get();
-      }
-    }
-    int processed = jpeg_write_raw_data(cinfo, planes, kCompressBatchSize);
-    if (processed != kCompressBatchSize) {
-      ALOGE("Number of processed lines does not equal input lines.");
-      return false;
+    int processed = jpeg_write_raw_data(cinfo, subImage, DCTSIZE * cinfo->max_v_samp_factor);
+    if (processed != DCTSIZE * cinfo->max_v_samp_factor) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "number of scan lines processed %d does not equal requested scan lines %d ",
+               processed, DCTSIZE * cinfo->max_v_samp_factor);
+      return status;
     }
   }
-  return true;
-}
-
-bool JpegEncoderHelper::compressY(jpeg_compress_struct* cinfo, const uint8_t* yBuffer,
-                                  int lumaStride) {
-  uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
-
-  const int aligned_luma_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-  const bool need_luma_padding = (lumaStride < aligned_luma_width);
-
-  std::unique_ptr<uint8_t[]> empty = nullptr;
-  std::unique_ptr<uint8_t[]> y_mcu_row = nullptr;
-  uint8_t* y_mcu_row_ptr = nullptr;
-
-  JSAMPROW y[kCompressBatchSize];
-  JSAMPARRAY planes[1]{y};
-
-  if (cinfo->image_height % kCompressBatchSize != 0) {
-    empty = std::make_unique<uint8_t[]>(aligned_luma_width);
-    memset(empty.get(), 0, aligned_luma_width);
-  }
-
-  if (need_luma_padding) {
-    size_t mcu_row_size = aligned_luma_width * kCompressBatchSize;
-    y_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
-    y_mcu_row_ptr = y_mcu_row.get();
-    uint8_t* tmp = y_mcu_row_ptr;
-    for (int i = 0; i < kCompressBatchSize; ++i, tmp += aligned_luma_width) {
-      memset(tmp + cinfo->image_width, 0, aligned_luma_width - cinfo->image_width);
-    }
-  }
-
-  while (cinfo->next_scanline < cinfo->image_height) {
-    for (int i = 0; i < kCompressBatchSize; ++i) {
-      size_t scanline = cinfo->next_scanline + i;
-      if (scanline < cinfo->image_height) {
-        y[i] = y_plane + scanline * lumaStride;
-        if (need_luma_padding) {
-          uint8_t* tmp = y_mcu_row_ptr + i * aligned_luma_width;
-          memcpy(tmp, y[i], cinfo->image_width);
-          y[i] = tmp;
-        }
-      } else {
-        y[i] = empty.get();
-      }
-    }
-    int processed = jpeg_write_raw_data(cinfo, planes, kCompressBatchSize);
-    if (processed != kCompressBatchSize / 2) {
-      ALOGE("Number of processed lines does not equal input lines.");
-      return false;
-    }
-  }
-  return true;
+  return g_no_error;
 }
 
 }  // namespace ultrahdr
