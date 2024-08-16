@@ -16,7 +16,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(libuhdr VERSION 1.0 LANGUAGES C CXX
+project(libuhdr VERSION 1.8 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
@@ -96,6 +96,7 @@ option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed pack
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
 option_if_not_defined(UHDR_ENABLE_INSTALL "Add install and uninstall targets for libuhdr package" TRUE)
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with intrinsics " TRUE)
+option_if_not_defined(UHDR_ENABLE_GLES "Build with gpu acceleration " TRUE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
@@ -213,10 +214,14 @@ else()
   elseif(ARCH STREQUAL "arm")
     add_compile_options(-march=armv7-a)
     add_compile_options(-marm)
-    add_compile_options(-mfloat-abi=hard)
-    add_compile_options(-mfpu=vfpv3)
+    if(NOT ANDROID_ABI)
+      add_compile_options(-mfloat-abi=hard)
+    endif()
+    add_compile_options(-mfpu=neon-vfpv3)
+    add_compile_options(-fno-lax-vector-conversions)
   elseif(ARCH STREQUAL "aarch64")
     add_compile_options(-march=armv8-a)
+    add_compile_options(-fno-lax-vector-conversions)
   endif()
 endif()
 
@@ -251,6 +256,8 @@ endfunction()
 ###########################################################
 # Dependencies
 ###########################################################
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   find_library(log-lib log)
 endif()
@@ -288,8 +295,35 @@ endif()
 if(DEFINED CMAKE_TOOLCHAIN_FILE)
   list(APPEND UHDR_CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE})
 endif()
+if(DEFINED ANDROID_PLATFORM)
+  list(APPEND UHDR_CMAKE_ARGS -DANDROID_PLATFORM=${ANDROID_PLATFORM})
+endif()
+if(DEFINED ANDROID_ABI)
+  list(APPEND UHDR_CMAKE_ARGS -DANDROID_ABI=${ANDROID_ABI})
+endif()
 if(DEFINED UHDR_ANDROID_NDK_PATH)
   list(APPEND UHDR_CMAKE_ARGS -DUHDR_ANDROID_NDK_PATH=${UHDR_ANDROID_NDK_PATH})
+endif()
+
+# opengl es libraries
+if(UHDR_ENABLE_GLES)
+  find_package(EGL QUIET)
+  if(EGL_FOUND)
+    message(STATUS "Found EGL: ${EGL_LIBRARIES}")
+    find_package(OpenGLES3 QUIET)
+    if(OpenGLES3_FOUND)
+      message(STATUS "Found GLESv3: ${OPENGLES3_LIBRARIES} (API version \"${OpenGLES3_API_VERSION}\")")
+    else()
+      message(STATUS "Could NOT find GLESv3")
+    endif()
+  else()
+    message(STATUS "Could NOT find EGL")
+  endif()
+  if(EGL_FOUND AND OpenGLES3_FOUND)
+    add_compile_options(-DUHDR_ENABLE_GLES)
+  else()
+    set(UHDR_ENABLE_GLES FALSE)
+  endif()
 endif()
 
 # libjpeg-turbo
@@ -419,6 +453,10 @@ if(UHDR_ENABLE_INTRINSICS)
     list(APPEND UHDR_CORE_SRCS_LIST ${UHDR_CORE_NEON_SRCS_LIST})
   endif()
 endif()
+if(UHDR_ENABLE_GLES)
+  file(GLOB UHDR_CORE_GLES_SRCS_LIST "${SOURCE_DIR}/src/gpu/*.cpp")
+  list(APPEND UHDR_CORE_SRCS_LIST ${UHDR_CORE_GLES_SRCS_LIST})
+endif()
 file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/*.cpp")
 file(GLOB UHDR_BM_SRCS_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_SRCS_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
@@ -444,6 +482,9 @@ endif()
 if(NOT MSVC)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
 endif()
+if(DEFINED UHDR_MAX_DIMENSION)
+  target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -DUHDR_MAX_DIMENSION=${UHDR_MAX_DIMENSION})
+endif()
 target_include_directories(${UHDR_CORE_LIB_NAME} PRIVATE
   ${PRIVATE_INCLUDE_DIR}
   "${THIRD_PARTY_DIR}/image_io/includes/"
@@ -451,6 +492,9 @@ target_include_directories(${UHDR_CORE_LIB_NAME} PRIVATE
 target_include_directories(${UHDR_CORE_LIB_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   target_link_libraries(${UHDR_CORE_LIB_NAME} PUBLIC ${log-lib})
+endif()
+if(UHDR_ENABLE_GLES)
+  target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${EGL_LIBRARIES} ${OPENGLES3_LIBRARIES})
 endif()
 target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEIO_TARGET_NAME})
 
@@ -566,6 +610,12 @@ endif()
 set(UHDR_TARGET_NAME uhdr)
 add_library(${UHDR_TARGET_NAME})
 add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+if(UHDR_ENABLE_GLES)
+  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${EGL_LIBRARIES} ${OPENGLES3_LIBRARIES})
+endif()
+if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${log-lib})
+endif()
 target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
 set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
