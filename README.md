@@ -28,13 +28,14 @@ at the time of configure. That is, `cmake -DUHDR_BUILD_DEPS=1` will clone jpeg c
 from [link](https://github.com/libjpeg-turbo/libjpeg-turbo.git) and include it in
 the build process. This is however not recommended.
 
-If jpeg is included in the build process then to build jpeg with simd extensions,
+If jpeg is included in the build process then,
 - C compiler
-- [NASM](http://www.nasm.us) or [Yasm](http://yasm.tortall.net) are needed.
+- For building x86/x86_64 SIMD optimizations, [NASM](http://www.nasm.us) or
+ [Yasm](http://yasm.tortall.net).
   * If using NASM, 2.13 or later is required.
   * If using Yasm, 1.2.0 or later is required.
 
-### Build Procedure
+### Build Procedure (same build and host system)
 
 To build libultrahdr, examples, unit tests:
 
@@ -116,6 +117,86 @@ This will generate the following files under `build_directory`:
 
 NOTE: To not build unit tests, skip passing `-DUHDR_BUILD_TESTS=1`
 
+### Cross Compilation
+
+To build libultrahdr, examples:
+
+### Armv7 (32-bit) Linux
+NOTE: This assumes that you are building on a machine that has toolchain for 32-bit
+ Armv7 GNU/Linux systems.
+
+    mkdir build_directory
+    cd build_directory
+    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/arm-linux-gnueabihf.cmake -DUHDR_BUILD_DEPS=1 ../
+    make
+
+### Armv8 (64-bit) Linux
+NOTE: This assumes that you are building on a machine that has toolchain for 64-bit
+ Armv8 GNU/Linux systems.
+
+    mkdir build_directory
+    cd build_directory
+    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/arm-linux-gnueabihf.cmake -DUHDR_BUILD_DEPS=1 ../
+    make
+
+### Android
+NOTE: This assumes that you are building on a machine that has
+ [Android NDK](https://developer.android.com/ndk/downloads).
+
+#### Armv7 (32-bit)
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
+        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
+        -DUHDR_BUILD_DEPS=1\
+        -DANDROID_ABI=armeabi-v7a\
+        -DANDROID_PLATFORM=android-23 ../
+    make
+
+#### Armv8 (64-bit)
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
+        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
+        -DUHDR_BUILD_DEPS=1\
+        -DANDROID_ABI=arm64-v8a\
+        -DANDROID_PLATFORM=android-23 ../
+    make
+
+#### x86 (32-bit)
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
+        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
+        -DUHDR_BUILD_DEPS=1\
+        -DANDROID_ABI=x86\
+        -DANDROID_PLATFORM=android-23 ../
+    make
+
+#### x86_64 (64-bit)
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
+        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
+        -DUHDR_BUILD_DEPS=1\
+        -DANDROID_ABI=x86_64\
+        -DANDROID_PLATFORM=android-23 ../
+    make
+
+This will generate the following files under `build_directory`:
+
+**libuhdr.so**<br> ultrahdr shared library
+
+**ultrahdr_app**<br> Statically linked sample application demonstrating ultrahdr API usage
+
 ### Building Benchmark
 
 To build benchmarks, pass `-DUHDR_BUILD_BENCHMARK=1` to cmake configure command and build.
@@ -140,10 +221,10 @@ libultrahdr includes two classes of APIs, one to compress and the other to decom
 
 | Scenario  | Hdr intent raw | Sdr intent raw | Sdr intent compressed | Gain map compressed | Quality |   Exif   | Use Case |
 |:---------:| :----------: | :----------: | :---------------------: | :-------------------: | :-------: | :---------: | :-------- |
-| API - 0 | P010 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. [^1] |
-| API - 1 | P010 | YUV420  |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
-| API - 2 | P010 | YUV420  | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
-| API - 3 | P010 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
+| API - 0 | P010 or rgb1010102 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. [^1] |
+| API - 1 | P010 or rgb1010102 | YUV420 or rgba8888 |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
+| API - 2 | P010 or rgb1010102 | YUV420 or rgba8888 | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
+| API - 3 | P010 or rgb1010102 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
 | API - 4 |  No  |    No   | Yes  | Yes  |    No   |    No    | Used if, sdr compressed, gain map compressed and GainMap Metadata are present.[^5] |
 
 [^1]: Tonemap hdr to sdr. Compute gain map from hdr and sdr. Compress sdr and gainmap at quality configured. Add exif if provided. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
