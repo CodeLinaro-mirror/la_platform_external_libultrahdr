@@ -14,9 +14,15 @@
 # the License.
 #
 
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 
-project(libuhdr VERSION 1.8 LANGUAGES C CXX
+# CMP0091: MSVC runtime library flags are selected by an abstraction.
+# New in CMake 3.15. https://cmake.org/cmake/help/latest/policy/CMP0091.html
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 OLD)
+endif()
+
+project(libuhdr VERSION 1.2.0 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
@@ -47,6 +53,8 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
   endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm.*|ARM.*)")
   set(ARCH "arm")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64")
+  set(ARCH "riscv64")
 else()
   message(FATAL_ERROR "Architecture: ${CMAKE_SYSTEM_PROCESSOR} not recognized")
 endif()
@@ -56,6 +64,7 @@ endif()
 ###########################################################
 set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+set(JAVA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/java)
 set(TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 set(BENCHMARK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/benchmark)
 set(FUZZERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fuzzer)
@@ -88,15 +97,16 @@ function(option_if_not_defined name description default)
   endif()
 endfunction()
 
-option_if_not_defined(UHDR_BUILD_EXAMPLES "Build examples " TRUE)
+option_if_not_defined(UHDR_BUILD_EXAMPLES "Build sample application " TRUE)
 option_if_not_defined(UHDR_BUILD_TESTS "Build unit tests " FALSE)
-option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
-option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
+option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark tests " FALSE)
+option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzz test applications " FALSE)
 option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed packages " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
-option_if_not_defined(UHDR_ENABLE_INSTALL "Add install and uninstall targets for libuhdr package" TRUE)
-option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with intrinsics " TRUE)
-option_if_not_defined(UHDR_ENABLE_GLES "Build with gpu acceleration " TRUE)
+option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets for libuhdr package " TRUE)
+option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
+option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
+option_if_not_defined(UHDR_BUILD_JAVA "Build JNI wrapper and Java front-end classes " FALSE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
@@ -112,17 +122,6 @@ if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
 endif()
 
 # side effects
-if(NOT BUILD_SHARED_LIBS AND UHDR_ENABLE_INSTALL)
-  set(UHDR_ENABLE_INSTALL FALSE) # libjpeg dependency is correctly mentioned as Requires.private in libuhdr.pc
-                                 # `pkg-config --libs libuhdr` returns -L/usr/local/lib -luhdr
-                                 # `pkg-config --libs --static libuhdr` returns -L/usr/local/lib -luhdr -ljpeg
-                                 # Not many build systems pass `--static` argument to pkg-config
-                                 # So if pc file to work universally for static and shared libs its best to
-                                 # elevate libjpeg dependency from Requires.private to Requires.
-                                 # But, for now, disable install and uninstall targets if target type is static.
-  message(STATUS "Install and uninstall targets - Disabled")
-endif()
-
 if(CMAKE_CROSSCOMPILING AND UHDR_ENABLE_INSTALL)
   set(UHDR_ENABLE_INSTALL FALSE) # disable install and uninstall targets during cross compilation.
   message(STATUS "Install and uninstall targets - Disabled")
@@ -158,6 +157,12 @@ if(BUILD_SHARED_LIBS)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
   add_compile_options(-DUHDR_BUILDING_SHARED_LIBRARY)
+else()
+  if(WIN32)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES .lib .a)
+  else()
+    set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+  endif()
 endif()
 if(UHDR_ENABLE_LOGS)
   add_compile_options(-DLOG_NDEBUG)
@@ -222,6 +227,9 @@ else()
   elseif(ARCH STREQUAL "aarch64")
     add_compile_options(-march=armv8-a)
     add_compile_options(-fno-lax-vector-conversions)
+  elseif(ARCH STREQUAL "riscv64")
+    add_compile_options(-march=rv64gc)
+    add_compile_options(-mabi=lp64d)
   endif()
 endif()
 
@@ -259,7 +267,15 @@ endfunction()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
-  find_library(log-lib log)
+  if (UHDR_ENABLE_LOGS)
+    find_library(log-lib log QUIET)
+    if(NOT log-lib)
+      message(FATAL_ERROR "Could NOT find log library, retry after installing \
+                           log library at sysroot or try 'cmake -DUHDR_ENABLE_LOGS=0'")
+    else()
+      message(STATUS "Found log-lib: ${log-lib}")
+    endif()
+  endif()
 endif()
 
 # Threads
@@ -321,6 +337,12 @@ if(UHDR_ENABLE_GLES)
   endif()
   if(EGL_FOUND AND OpenGLES3_FOUND)
     add_compile_options(-DUHDR_ENABLE_GLES)
+    string(FIND "${OPENGLES3_LIBRARIES}" "GLESv3" result)
+    if(result GREATER -1)
+      set(UHDR_GL_DEPS "-lEGL -lGLESv3")
+    else()
+      set(UHDR_GL_DEPS "-lEGL -lGLESv2")
+    endif()
   else()
     set(UHDR_ENABLE_GLES FALSE)
   endif()
@@ -379,6 +401,23 @@ if(NOT JPEG_FOUND)
         BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
         INSTALL_COMMAND ""
     )
+  endif()
+endif()
+
+if(UHDR_BUILD_JAVA)
+  # build jni and java util classes
+  find_package(Java REQUIRED)
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+    find_package(JNI QUIET)
+    if(NOT JAVA_INCLUDE_PATH)
+      message(FATAL_ERROR "Could NOT find JNI Component")
+    else()
+      message(STATUS "Found JNI Component")
+    endif()
+    set(UHDR_JNI_INCLUDE_PATH ${JAVA_INCLUDE_PATH})
+  else()
+    find_package(JNI REQUIRED)
+    set(UHDR_JNI_INCLUDE_PATH ${JNI_INCLUDE_DIRS})
   endif()
 endif()
 
@@ -456,6 +495,11 @@ endif()
 if(UHDR_ENABLE_GLES)
   file(GLOB UHDR_CORE_GLES_SRCS_LIST "${SOURCE_DIR}/src/gpu/*.cpp")
   list(APPEND UHDR_CORE_SRCS_LIST ${UHDR_CORE_GLES_SRCS_LIST})
+endif()
+if(UHDR_BUILD_JAVA)
+  file(GLOB UHDR_JNI_SRCS_LIST "${JAVA_DIR}/jni/*.cpp")
+  file(GLOB UHDR_JAVA_SRCS_LIST "${JAVA_DIR}/com/google/media/codecs/ultrahdr/*.java")
+  file(GLOB UHDR_APP_SRC "${JAVA_DIR}/UltraHdrApp.java")
 endif()
 file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/*.cpp")
 file(GLOB UHDR_BM_SRCS_LIST "${BENCHMARK_DIR}/*.cpp")
@@ -617,8 +661,46 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${log-lib})
 endif()
 target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
-set_target_properties(${UHDR_TARGET_NAME} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR} PUBLIC_HEADER ultrahdr_api.h)
+set_target_properties(${UHDR_TARGET_NAME}
+                      PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+if(BUILD_SHARED_LIBS)
+  # If target is STATIC no need to set VERSION and SOVERSION
+  set_target_properties(${UHDR_TARGET_NAME}
+                        PROPERTIES VERSION ${PROJECT_VERSION}
+                        SOVERSION ${PROJECT_VERSION_MAJOR})
+endif()
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
+
+# Build static library as well
+if(BUILD_SHARED_LIBS)
+  set(UHDR_TARGET_NAME_STATIC uhdr-static)
+  add_library(${UHDR_TARGET_NAME_STATIC} STATIC)
+  add_dependencies(${UHDR_TARGET_NAME_STATIC} ${UHDR_CORE_LIB_NAME})
+  if(UHDR_ENABLE_GLES)
+    target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${EGL_LIBRARIES} ${OPENGLES3_LIBRARIES})
+  endif()
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+    target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${log-lib})
+  endif()
+  target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${JPEG_LIBRARIES})
+  combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME_STATIC})
+  if(NOT MSVC)
+    set_target_properties(${UHDR_TARGET_NAME_STATIC}
+                          PROPERTIES OUTPUT_NAME ${UHDR_TARGET_NAME})
+  endif()
+endif()
+
+if(UHDR_BUILD_JAVA)
+  include(UseJava)
+
+  set(UHDR_JNI_TARGET_NAME uhdrjni)
+  add_library(${UHDR_JNI_TARGET_NAME} SHARED ${UHDR_JNI_SRCS_LIST})
+  add_dependencies(${UHDR_JNI_TARGET_NAME} ${UHDR_TARGET_NAME})
+  target_include_directories(${UHDR_JNI_TARGET_NAME} PRIVATE ${UHDR_JNI_INCLUDE_PATH} ${EXPORT_INCLUDE_DIR})
+  target_link_libraries(${UHDR_JNI_TARGET_NAME} PRIVATE ${UHDR_TARGET_NAME})
+
+  add_jar(uhdr-java SOURCES ${UHDR_JAVA_SRCS_LIST} ${UHDR_APP_SRC} ENTRY_POINT UltraHdrApp)
+endif()
 
 if(UHDR_ENABLE_INSTALL)
   if(NOT(MSVC OR XCODE))
@@ -629,7 +711,7 @@ if(UHDR_ENABLE_INSTALL)
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-    install(TARGETS ${UHDR_TARGET_NAME}
+    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC}
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
