@@ -168,6 +168,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     // initialize configuration parameters
     cinfo.image_width = width;
     cinfo.image_height = height;
+    bool isGainMapImg = true;
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       cinfo.input_components = 3;
       cinfo.in_color_space = JCS_RGB;
@@ -175,9 +176,19 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
       if (format == UHDR_IMG_FMT_8bppYCbCr400) {
         cinfo.input_components = 1;
         cinfo.in_color_space = JCS_GRAYSCALE;
-      } else {
+      } else if (format == UHDR_IMG_FMT_12bppYCbCr420 || format == UHDR_IMG_FMT_24bppYCbCr444 ||
+                 format == UHDR_IMG_FMT_16bppYCbCr422 || format == UHDR_IMG_FMT_16bppYCbCr440 ||
+                 format == UHDR_IMG_FMT_12bppYCbCr411 || format == UHDR_IMG_FMT_10bppYCbCr410) {
         cinfo.input_components = 3;
         cinfo.in_color_space = JCS_YCbCr;
+        isGainMapImg = false;
+      } else {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unrecognized input color format for encoding, color format %d", format);
+        jpeg_destroy_compress(&cinfo);
+        return status;
       }
     }
     jpeg_set_defaults(&cinfo);
@@ -197,6 +208,13 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     jpeg_start_compress(&cinfo, TRUE);
     if (iccBuffer != nullptr && iccSize > 0) {
       jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+    }
+    if (isGainMapImg) {
+      char comment[255];
+      snprintf(comment, sizeof comment,
+               "Source: google libuhdr v%s, Coder: libjpeg v%d, Attrib: GainMap Image",
+               UHDR_LIB_VERSION_STR, JPEG_LIB_VERSION);
+      jpeg_write_marker(&cinfo, JPEG_COM, reinterpret_cast<JOCTET*>(comment), strlen(comment));
     }
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       while (cinfo.next_scanline < cinfo.image_height) {
