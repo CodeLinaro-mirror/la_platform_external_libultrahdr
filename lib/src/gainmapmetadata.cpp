@@ -198,7 +198,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
   const bool useCommonDenominator = (flags & 8) != 0;
 
   if (useCommonDenominator) {
-    uint32_t commonDenominator;
+    uint32_t commonDenominator = 1u;
     UHDR_ERR_CHECK(streamReadU32(in_data, commonDenominator, pos))
 
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseHdrHeadroomN, pos))
@@ -283,7 +283,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->baseOffsetD[i], "baseOffset denominator");
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
   }
-  to->version = kGainMapVersion;
+  to->version = kJpegrVersion;
   to->max_content_boost = (float)from->gainMapMaxN[0] / from->gainMapMaxD[0];
   to->min_content_boost = (float)from->gainMapMinN[0] / from->gainMapMinD[0];
   to->gamma = (float)from->gainMapGammaN[0] / from->gainMapGammaD[0];
