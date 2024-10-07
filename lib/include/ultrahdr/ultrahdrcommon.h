@@ -205,18 +205,29 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
 
 #ifdef UHDR_ENABLE_GLES
 
+typedef enum uhdr_effect_shader {
+  UHDR_MIR_HORZ,
+  UHDR_MIR_VERT,
+  UHDR_ROT_90,
+  UHDR_ROT_180,
+  UHDR_ROT_270,
+  UHDR_CROP,
+  UHDR_RESIZE,
+} uhdr_effect_shader_t;
+
 /**\brief OpenGL context */
 typedef struct uhdr_opengl_ctxt {
   // EGL Context
-  EGLDisplay mEGLDisplay;              /**< EGL display connection */
-  EGLContext mEGLContext;              /**< EGL rendering context */
-  EGLSurface mEGLSurface;              /**< EGL surface for rendering */
-  EGLConfig mEGLConfig;                /**< EGL frame buffer configuration */
+  EGLDisplay mEGLDisplay; /**< EGL display connection */
+  EGLContext mEGLContext; /**< EGL rendering context */
+  EGLSurface mEGLSurface; /**< EGL surface for rendering */
+  EGLConfig mEGLConfig;   /**< EGL frame buffer configuration */
 
   // GLES Context
-  GLuint mQuadVAO, mQuadVBO, mQuadEBO; /**< GL objects */
-
-  uhdr_error_info_t mErrorStatus;      /**< Context status */
+  GLuint mQuadVAO, mQuadVBO, mQuadEBO;           /**< GL objects */
+  GLuint mShaderProgram[UHDR_RESIZE + 1];        /**< Shader programs */
+  GLuint mDecodedImgTexture, mGainmapImgTexture; /**< GL Textures */
+  uhdr_error_info_t mErrorStatus;                /**< Context status */
 
   uhdr_opengl_ctxt();
   ~uhdr_opengl_ctxt();
@@ -260,6 +271,19 @@ typedef struct uhdr_opengl_ctxt {
    */
   GLuint create_texture(uhdr_img_fmt_t fmt, int w, int h, void* data);
 
+  /*!\breif This method is used to read data from texture into a raw image
+   * NOTE: For any channel, this method assumes width and stride to be identical
+   *
+   * \param[in]   texture    texture_id
+   * \param[in]   fmt        image format
+   * \param[in]   w          image width
+   * \param[in]   h          image height
+   * \param[in]   data       image data
+   *
+   * \return none
+   */
+  void read_texture(GLuint* texture, uhdr_img_fmt_t fmt, int w, int h, void* data);
+
   /*!\brief This method is used to set up quad buffers and arrays
    *
    * \return none
@@ -296,6 +320,8 @@ typedef struct uhdr_opengl_ctxt {
 
 } uhdr_opengl_ctxt_t; /**< alias for struct uhdr_opengl_ctxt */
 
+bool isBufferDataContiguous(uhdr_raw_image_t* img);
+
 #endif
 
 }  // namespace ultrahdr
@@ -327,6 +353,9 @@ struct uhdr_encoder_private : uhdr_codec_private {
   int m_gainmap_scale_factor;
   bool m_use_multi_channel_gainmap;
   float m_gamma;
+  uhdr_enc_preset_t m_enc_preset;
+  float m_min_content_boost;
+  float m_max_content_boost;
 
   // internal data
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
@@ -350,6 +379,10 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
+  std::vector<uint8_t> m_base_img;
+  uhdr_mem_block_t m_base_img_block;
+  std::vector<uint8_t> m_gainmap_img;
+  uhdr_mem_block_t m_gainmap_img_block;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;

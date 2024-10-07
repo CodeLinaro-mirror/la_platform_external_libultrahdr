@@ -20,7 +20,7 @@
 
 namespace ultrahdr {
 
-static const std::string applyGainMapVertexShader = R"__SHADER__(#version 300 es
+extern const std::string vertex_shader = R"__SHADER__(#version 300 es
   precision highp float;
 
   layout(location = 0) in vec4 aPos;
@@ -235,8 +235,9 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
     uint16_t* y = static_cast<uint16_t*>(img->planes[UHDR_PLANE_Y]);
     uint16_t* u = static_cast<uint16_t*>(img->planes[UHDR_PLANE_UV]);
     std::ptrdiff_t sz = u - y;
+    long pixels = img->w * img->h;
     return img->stride[UHDR_PLANE_Y] == img->w && img->stride[UHDR_PLANE_UV] == img->w &&
-           sz == img->w * img->h;
+           sz == pixels;
   } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420 || img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ||
              img->fmt == UHDR_IMG_FMT_16bppYCbCr422) {
     int h_samp_factor = img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ? 1 : 2;
@@ -245,10 +246,11 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
     uint8_t* u = static_cast<uint8_t*>(img->planes[UHDR_PLANE_U]);
     uint8_t* v = static_cast<uint8_t*>(img->planes[UHDR_PLANE_V]);
     std::ptrdiff_t sz_a = u - y, sz_b = v - u;
+    long pixels = img->w * img->h;
     return img->stride[UHDR_PLANE_Y] == img->w &&
            img->stride[UHDR_PLANE_U] == img->w / h_samp_factor &&
-           img->stride[UHDR_PLANE_V] == img->w / h_samp_factor && sz_a == img->w * img->h &&
-           sz_b == img->w * img->h / (h_samp_factor * v_samp_factor);
+           img->stride[UHDR_PLANE_V] == img->w / h_samp_factor && sz_a == pixels &&
+           sz_b == pixels / (h_samp_factor * v_samp_factor);
   }
   return false;
 }
@@ -259,35 +261,31 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
                                    uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt) {
   GLuint shaderProgram = 0;   // shader program
   GLuint yuvTexture = 0;      // sdr intent texture
-  GLuint gainMapTexture = 0;  // gainmap texture
-  GLuint rTexture = 0;        // a texture to render to
   GLuint frameBuffer = 0;
 
 #define RET_IF_ERR()                                           \
   if (opengl_ctxt->mErrorStatus.error_code != UHDR_CODEC_OK) { \
     if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);    \
     if (yuvTexture) glDeleteTextures(1, &yuvTexture);          \
-    if (gainMapTexture) glDeleteTextures(1, &gainMapTexture);  \
-    if (rTexture) glDeleteTextures(1, &rTexture);              \
     if (shaderProgram) glDeleteProgram(shaderProgram);         \
     return opengl_ctxt->mErrorStatus;                          \
   }
 
   shaderProgram = opengl_ctxt->create_shader_program(
-      applyGainMapVertexShader.c_str(),
+      vertex_shader.c_str(),
       getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct).c_str());
   RET_IF_ERR()
 
   yuvTexture = opengl_ctxt->create_texture(sdr_intent->fmt, sdr_intent->w, sdr_intent->h,
                                            sdr_intent->planes[0]);
-  gainMapTexture = opengl_ctxt->create_texture(gainmap_img->fmt, gainmap_img->w, gainmap_img->h,
-                                               gainmap_img->planes[0]);
-  rTexture = opengl_ctxt->create_texture(
+  opengl_ctxt->mGainmapImgTexture = opengl_ctxt->create_texture(
+      gainmap_img->fmt, gainmap_img->w, gainmap_img->h, gainmap_img->planes[0]);
+  opengl_ctxt->mDecodedImgTexture = opengl_ctxt->create_texture(
       output_ct == UHDR_CT_LINEAR ? UHDR_IMG_FMT_64bppRGBAHalfFloat : UHDR_IMG_FMT_32bppRGBA1010102,
       sdr_intent->w, sdr_intent->h, nullptr);
   RET_IF_ERR()
 
-  frameBuffer = opengl_ctxt->setup_framebuffer(rTexture);
+  frameBuffer = opengl_ctxt->setup_framebuffer(opengl_ctxt->mDecodedImgTexture);
   RET_IF_ERR()
 
   glViewport(0, 0, sdr_intent->w, sdr_intent->h);
@@ -315,7 +313,7 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   glUniform1i(glGetUniformLocation(shaderProgram, "yuvTexture"), 0);
 
   glActiveTexture(GL_TEXTURE1);
-  glBindTexture(GL_TEXTURE_2D, gainMapTexture);
+  glBindTexture(GL_TEXTURE_2D, opengl_ctxt->mGainmapImgTexture);
   glUniform1i(glGetUniformLocation(shaderProgram, "gainMapTexture"), 1);
 
   opengl_ctxt->check_gl_errors("binding values to uniforms");
@@ -323,12 +321,6 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-  if (output_ct == UHDR_CT_LINEAR) {
-    glReadPixels(0, 0, dest->w, dest->h, GL_RGBA, GL_HALF_FLOAT, dest->planes[UHDR_PLANE_PACKED]);
-  } else if (output_ct == UHDR_CT_HLG || output_ct == UHDR_CT_PQ) {
-    glReadPixels(0, 0, dest->w, dest->h, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV,
-                 dest->planes[UHDR_PLANE_PACKED]);
-  }
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   opengl_ctxt->check_gl_errors("reading gles output");
@@ -338,8 +330,6 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);
   if (yuvTexture) glDeleteTextures(1, &yuvTexture);
-  if (gainMapTexture) glDeleteTextures(1, &gainMapTexture);
-  if (rTexture) glDeleteTextures(1, &rTexture);
   if (shaderProgram) glDeleteProgram(shaderProgram);
 
   return opengl_ctxt->mErrorStatus;

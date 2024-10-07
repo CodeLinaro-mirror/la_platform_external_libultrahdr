@@ -105,13 +105,20 @@ void UltraHdrEncFuzzer::process() {
     auto multi_channel_gainmap = mFdp.ConsumeBool();
 
     int width = mFdp.ConsumeIntegralInRange<int>(kMinWidth, kMaxWidth);
-    width = (width >> 1) << 1;
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      width = (width >> 1) << 1;
+    }
 
     int height = mFdp.ConsumeIntegralInRange<int>(kMinHeight, kMaxHeight);
-    height = (height >> 1) << 1;
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      height = (height >> 1) << 1;
+    }
 
     // gainmap scale factor
     auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
+
+    // encoding speed preset
+    auto enc_preset = static_cast<uhdr_enc_preset_t>(mFdp.ConsumeIntegralInRange<int>(0, 1));
 
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
@@ -265,6 +272,7 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
     ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
+    ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
 
     uhdr_error_info_t status = {UHDR_CODEC_OK, 0, ""};
     if (muxSwitch == 0 || muxSwitch == 1) {  // api 0 or api 1
