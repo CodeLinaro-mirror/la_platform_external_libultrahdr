@@ -224,9 +224,10 @@ typedef struct uhdr_opengl_ctxt {
   EGLConfig mEGLConfig;   /**< EGL frame buffer configuration */
 
   // GLES Context
-  GLuint mQuadVAO, mQuadVBO, mQuadEBO;    /**< GL objects */
-  GLuint mShaderProgram[UHDR_RESIZE + 1]; /**< Shader programs */
-  uhdr_error_info_t mErrorStatus;         /**< Context status */
+  GLuint mQuadVAO, mQuadVBO, mQuadEBO;           /**< GL objects */
+  GLuint mShaderProgram[UHDR_RESIZE + 1];        /**< Shader programs */
+  GLuint mDecodedImgTexture, mGainmapImgTexture; /**< GL Textures */
+  uhdr_error_info_t mErrorStatus;                /**< Context status */
 
   uhdr_opengl_ctxt();
   ~uhdr_opengl_ctxt();
@@ -353,6 +354,8 @@ struct uhdr_encoder_private : uhdr_codec_private {
   bool m_use_multi_channel_gainmap;
   float m_gamma;
   uhdr_enc_preset_t m_enc_preset;
+  float m_min_content_boost;
+  float m_max_content_boost;
 
   // internal data
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
@@ -376,6 +379,10 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
+  std::vector<uint8_t> m_base_img;
+  uhdr_mem_block_t m_base_img_block;
+  std::vector<uint8_t> m_gainmap_img;
+  uhdr_mem_block_t m_gainmap_img_block;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;
