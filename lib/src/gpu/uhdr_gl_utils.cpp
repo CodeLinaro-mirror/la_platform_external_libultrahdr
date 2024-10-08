@@ -27,6 +27,8 @@ uhdr_opengl_ctxt::uhdr_opengl_ctxt() {
   mQuadVBO = 0;
   mQuadEBO = 0;
   mErrorStatus = g_no_error;
+  mDecodedImgTexture = 0;
+  mGainmapImgTexture = 0;
   for (int i = 0; i < UHDR_RESIZE + 1; i++) {
     mShaderProgram[i] = 0;
   }
@@ -93,12 +95,12 @@ GLuint uhdr_opengl_ctxt::compile_shader(GLenum type, const char* source) {
     // Info log length includes the null terminator, so 1 means that the info log is an empty
     // string.
     if (logLength > 1) {
-      char log[logLength];
-      glGetShaderInfoLog(shader, logLength, nullptr, log);
+      std::vector<char> log(logLength);
+      glGetShaderInfoLog(shader, logLength, nullptr, log.data());
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
       snprintf(mErrorStatus.detail, sizeof mErrorStatus.detail,
-               "Unable to compile shader, error log: %s", log);
+               "Unable to compile shader, error log: %s", log.data());
     } else {
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
@@ -160,12 +162,12 @@ GLuint uhdr_opengl_ctxt::create_shader_program(const char* vertex_source,
     // Info log length includes the null terminator, so 1 means that the info log is an empty
     // string.
     if (logLength > 1) {
-      char log[logLength];
-      glGetProgramInfoLog(program, logLength, nullptr, log);
+      std::vector<char> log(logLength);
+      glGetProgramInfoLog(program, logLength, nullptr, log.data());
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
       snprintf(mErrorStatus.detail, sizeof mErrorStatus.detail,
-               "Unable to link shader program, error log: %s", log);
+               "Unable to link shader program, error log: %s", log.data());
     } else {
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
@@ -385,6 +387,14 @@ void uhdr_opengl_ctxt::delete_opengl_ctxt() {
   if (mEGLDisplay != EGL_NO_DISPLAY) {
     eglTerminate(mEGLDisplay);
     mEGLDisplay = EGL_NO_DISPLAY;
+  }
+  if (mDecodedImgTexture) {
+    glDeleteTextures(1, &mDecodedImgTexture);
+    mDecodedImgTexture = 0;
+  }
+  if (mGainmapImgTexture) {
+    glDeleteTextures(1, &mGainmapImgTexture);
+    mGainmapImgTexture = 0;
   }
   for (int i = 0; i < UHDR_RESIZE + 1; i++) {
     if (mShaderProgram[i]) {
