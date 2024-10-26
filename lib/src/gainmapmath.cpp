@@ -512,23 +512,6 @@ bool isPixelFormatRgb(uhdr_img_fmt_t format) {
          format == UHDR_IMG_FMT_32bppRGBA1010102;
 }
 
-float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer) {
-  switch (transfer) {
-    case UHDR_CT_LINEAR:
-      // TODO: configure MDML correctly for linear tf
-      return kHlgMaxNits;
-    case UHDR_CT_HLG:
-      return kHlgMaxNits;
-    case UHDR_CT_PQ:
-      return kPqMaxNits;
-    case UHDR_CT_SRGB:
-      return kSdrWhiteNits;
-    case UHDR_CT_UNSPECIFIED:
-      return -1.0f;
-  }
-  return -1.0f;
-}
-
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
 // the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in
 // gainmapmath.cpp, given that we use BT.709 encoding for sRGB and BT.601 encoding for Display-P3,
@@ -696,11 +679,11 @@ Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
   return e * gainFactor;
 }
 
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
   if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
-  float gainFactor = exp2(logBoost * displayBoost / metadata->hdr_capacity_max);
+  float gainFactor = exp2(logBoost * gainmapWeight);
   return e * gainFactor;
 }
 
@@ -727,7 +710,7 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
   if (metadata->gamma != 1.0f) {
     gain.r = pow(gain.r, 1.0f / metadata->gamma);
     gain.g = pow(gain.g, 1.0f / metadata->gamma);
@@ -739,9 +722,9 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, floa
                     log2(metadata->max_content_boost) * gain.g;
   float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
                     log2(metadata->max_content_boost) * gain.b;
-  float gainFactorR = exp2(logBoostR * displayBoost / metadata->hdr_capacity_max);
-  float gainFactorG = exp2(logBoostG * displayBoost / metadata->hdr_capacity_max);
-  float gainFactorB = exp2(logBoostB * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorR = exp2(logBoostR * gainmapWeight);
+  float gainFactorG = exp2(logBoostG * gainmapWeight);
+  float gainFactorB = exp2(logBoostB * gainmapWeight);
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 
