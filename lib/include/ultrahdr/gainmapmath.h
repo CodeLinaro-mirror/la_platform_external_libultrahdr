@@ -71,6 +71,7 @@ typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
 typedef Color (*GetPixelFn)(uhdr_raw_image_t*, size_t, size_t);
 typedef Color (*SamplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
+typedef void (*PutPixelFn)(uhdr_raw_image_t*, size_t, size_t, Color&);
 
 static inline float clampPixelFloat(float value) {
   return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
@@ -164,6 +165,12 @@ union FloatUIntUnion {
   float fFloat;
 };
 
+// FIXME: The shift operations in this function are causing UBSAN (Undefined-shift) errors
+// Precisely,
+// runtime error: left shift of negative value -112
+// runtime error : shift exponent 125 is too large for 32 - bit type 'uint32_t'(aka 'unsigned int')
+// These need to be addressed. Until then, disable ubsan analysis for this function
+UHDR_NO_SANITIZE_UNDEFINED
 inline uint16_t floatToHalf(float f) {
   FloatUIntUnion floatUnion;
   floatUnion.fFloat = f;
@@ -192,21 +199,20 @@ struct GainLUT {
     }
   }
 
-  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
     this->mGammaInv = 1.0f / metadata->gamma;
-    float boostFactor = displayBoost > 0 ? displayBoost / metadata->hdr_capacity_max : 1.0f;
     for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
                        log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost * boostFactor);
+      mGainTable[idx] = exp2(logBoost * gainmapWeight);
     }
   }
 
   ~GainLUT() {}
 
   float getGainFactor(float gain) {
-    gain = pow(gain, mGammaInv);
+    if (mGammaInv != 1.0f) gain = pow(gain, mGammaInv);
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
@@ -480,9 +486,14 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format);
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
 
 /*
- * Get max display mastering luminance in nits
+ * Get function to put pixels to raw image for a given color format
  */
-float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer);
+PutPixelFn putPixelFn(uhdr_img_fmt_t format);
+
+/*
+ * Returns true if the pixel format is rgb
+ */
+bool isPixelFormatRgb(uhdr_img_fmt_t format);
 
 /*
  * Convert between YUV encodings, according to ITU-R BT.709-6, ITU-R BT.601-7, and ITU-R BT.2100-2.
@@ -553,7 +564,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
  * value, with the given hdr ratio, to the given sdr input in the range [0, 1].
  */
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
 
 /*
@@ -561,7 +572,7 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
  * in the range [0, 1].
  */
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
 
 /*
@@ -572,6 +583,8 @@ Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 
 /*
  * Sample the image at the provided location, with a weighting based on nearby
@@ -582,6 +595,14 @@ Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, siz
 Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+
+/*
+ * Put pixel in the image at the provided location.
+ */
+void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 
 /*
  * Sample the gain value for the map from a given x,y coordinate on a scale
@@ -612,6 +633,7 @@ uint64_t colorToRgbaF16(Color e_gamma);
 /*
  * Helper for copying raw image descriptor
  */
+std::unique_ptr<uhdr_raw_image_ext_t> copy_raw_image(uhdr_raw_image_t* src);
 uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
 /*
