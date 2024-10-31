@@ -44,6 +44,46 @@
 #define UHDR_EXTERN extern UHDR_API
 #endif
 
+/*
+ * A Note on version numbering:
+ * Over the course of development multiple changes were made to the interface that are not entirely
+ * backward compatible. Some APIs were renamed for consistency and better readability. New APIs were
+ * introduced to allow configuration of encoding/decoding parameters. As per convention, breaking
+ * backward compatibility MUST be indicated with a major version update, introducing new APIs /
+ * features MUST be indicated with a minor version update and bug fixes MUST be indicated with a
+ * patch version update. This convention however, is not followed. Below table summarizes these
+ * details:
+ *
+ * source version    ultrahdr_api.h                 Details
+ *                   version string
+ * --------------    --------------              -------------
+ *   1.0.0           Not available               This version did not have a public API. Apps,
+ *                                               directly included the project header files.
+ *   1.1.0           Not available               ultrahdr_api.h is introduced in this release. The
+ *                                               API header file did not advertise any version
+ *                                               string.
+ *   1.1.1           Not available               The API header file did not advertise any version
+ *                                               string. Some bug fixes and introduced one new API
+ *                                               which warrants a minor version update. But
+ *                                               indicated as a patch update.
+ *   1.2.0           1.2.0                       Some bug fixes, introduced new API and renamed
+ *                                               existing API which warrants a major version update.
+ *                                               But indicated as a minor update.
+ */
+
+// This needs to be kept in sync with version in CMakeLists.txt
+#define UHDR_LIB_VER_MAJOR 1
+#define UHDR_LIB_VER_MINOR 2
+#define UHDR_LIB_VER_PATCH 0
+
+#define UHDR_LIB_VERSION \
+  ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
+
+#define XSTR(s) STR(s)
+#define STR(s) #s
+#define UHDR_LIB_VERSION_STR \
+  XSTR(UHDR_LIB_VER_MAJOR) "." XSTR(UHDR_LIB_VER_MINOR) "." XSTR(UHDR_LIB_VER_PATCH)
+
 // ===============================================================================================
 // Enum Definitions
 // ===============================================================================================
@@ -161,10 +201,10 @@ typedef enum uhdr_mirror_direction {
 
 /*!\brief Detailed return status */
 typedef struct uhdr_error_info {
-  uhdr_codec_err_t error_code;
-  int has_detail;
-  char detail[256];
-} uhdr_error_info_t; /**< alias for struct uhdr_error_info */
+  uhdr_codec_err_t error_code; /**< error code */
+  int has_detail;              /**< has detailed error logs. 0 - no, else - yes */
+  char detail[256];            /**< error logs */
+} uhdr_error_info_t;           /**< alias for struct uhdr_error_info */
 
 /**\brief Raw Image Descriptor */
 typedef struct uhdr_raw_image {
@@ -297,10 +337,17 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t
                                                             uhdr_compressed_image_t* img,
                                                             uhdr_img_label_t intent);
 
-/*!\brief Add gain map image descriptor and gainmap metadata info to encoder context. The function
- * internally goes through all the fields of the image descriptor and checks for their sanity. If no
- * anomalies are seen then the image is added to internal list. Repeated calls to this function will
- * replace the old entry with the current.
+/*!\brief Add gain map image descriptor and gainmap metadata info that was used to generate the
+ * aforth gainmap image to encoder context. The function internally goes through all the fields of
+ * the image descriptor and checks for their sanity. If no anomalies are seen then the image is
+ * added to internal list. Repeated calls to this function will replace the old entry with the
+ * current.
+ *
+ * NOTE: There are apis that allow configuration of gainmap info separately. For instance
+ * #uhdr_enc_set_gainmap_gamma, #uhdr_enc_set_gainmap_scale_factor, ... They have no effect on the
+ * information that is configured via this api. The information configured here is treated as
+ * immutable and used as-is in encoding scenario where gainmap computations are intended to be
+ * by-passed.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  img  gain map image desciptor.
@@ -314,7 +361,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* e
                                                          uhdr_gainmap_metadata_t* metadata);
 
 /*!\brief Set quality factor for compressing base image and/or gainmap image. Default configured
- * quality factor of base image and gainmap image are 95 and 85 respectively.
+ * quality factor of base image and gainmap image are 95 and 95 respectively.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  quality  quality factor. Any integer in range [0 - 100].
@@ -331,7 +378,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
  * into the bitstream.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  img  exif data memory block.
+ * \param[in]  exif  exif data memory block.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -339,10 +386,29 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
-/*!\brief Enable/Disable multi-channel gainmap. By default single-channel gainmap is enabled.
+/*!\brief Set peak brightness of the reference display used during content mastering. For
+ * #UHDR_CT_HLG, #UHDR_CT_LINEAR inputs, this corresponds to the brightness level of the maximum
+ * code value 1.0.
+ *
+ * For #UHDR_CT_HLG, default mastering display peak luminance is 1000 nits. For #UHDR_CT_LINEAR
+ * content, there is no default value, needs to be configured, otherwise, error is thrown during
+ * encoding. For #UHDR_CT_PQ content, default mastering display peak luminance is 10000 nits.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  use_multi_channel_gainmap. 0 - single-channel gainmap is enabled,
+ * \param[in]  nits  mastering display peak brightness in nits. Any positive real number in range
+ *                   [203, 10000].
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_mastering_display_peak_brightness(uhdr_codec_private_t* enc, float nits);
+
+/*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  use_multi_channel_gainmap  enable/disable multichannel gain map.
+ *                                        0 - single-channel gainmap is enabled,
  *                                        otherwise - multi-channel gainmap is enabled.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
@@ -353,20 +419,20 @@ uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_mult
 
 /*!\brief Set gain map scaling factor. The encoding process allows signalling a downscaled gainmap
  * image instead of full resolution. This setting controls the factor by which the renditions are
- * downscaled. For instance, gain_map_scale_factor = 2 implies gainmap_image_width =
+ * downscaled. For instance, gainmap_scale_factor = 2 implies gainmap_image_width =
  * primary_image_width / 2 and gainmap image height = primary_image_height / 2.
- * Default gain map scaling factor is 4.
+ * Default gain map scaling factor is 1.
  * NOTE: This has no effect on base image rendition. Base image is signalled in full resolution
  * always.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  gain_map_scale_factor  gain map scale factor. Any integer in range (0, 128]
+ * \param[in]  gainmap_scale_factor  gain map scale factor. Any integer in range (0, 128]
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
-                                                                int gain_map_scale_factor);
+                                                                int gainmap_scale_factor);
 
 /*!\brief Set encoding gamma of gainmap image. For multi-channel gainmap image, set gamma is used
  * for gamma correction of all planes separately. Default gamma value is 1.0.
@@ -379,8 +445,36 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc, float gamma);
 
+/*!\brief Set min max content boost. This configuration is treated as a recommendation by the
+ * library. It is entirely possible for the library to use a different set of values. Value MUST be
+ * in linear scale.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  min_boost min content boost. Any positive real number.
+ * \param[in]  max_boost max content boost. Any positive real number >= min_boost.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc,
+                                                                 float min_boost, float max_boost);
+
+/*!\brief Set target display peak brightness in nits. This value determines the weight by which
+ * the gain map coefficients are scaled during decode. If this is not configured, then mastering
+ * display peak brightness setting is used.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  nits  target display peak brightness in nits. Any positive real number in range
+ *                   [203, 10000].
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_codec_private_t* enc,
+                                                                          float nits);
+
 /*!\brief Set encoding preset. Tunes the encoder configurations for performance or quality. Default
- * configuration is #UHDR_USAGE_REALTIME.
+ * configuration is #UHDR_USAGE_BEST_QUALITY.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  preset  encoding preset. #UHDR_USAGE_REALTIME - Tune settings for best performance
@@ -420,12 +514,18 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  *   - uhdr_enc_set_quality()
  * - If the application wants to insert exif data
  *   - uhdr_enc_set_exif_data()
+ * - If the application wants to set reference display peak brightness
+ *   - uhdr_enc_set_mastering_display_peak_brightness()
  * - If the application wants to set gainmap scale factor
  *   - uhdr_enc_set_gainmap_scale_factor()
  * - If the application wants to enable multi channel gain map
  *   - uhdr_enc_set_using_multi_channel_gainmap()
  * - If the application wants to set gainmap image gamma
  *   - uhdr_enc_set_gainmap_gamma()
+ * - If the application wants to recommend min max content boost
+ *   - uhdr_enc_set_min_max_content_boost()
+ * - If the application wants to set target display peak brightness
+ *   - uhdr_enc_set_target_display_peak_brightness()
  * - If the application wants to set encoding preset
  *   - uhdr_enc_set_preset()
  * - If the application wants to control target compression format
@@ -467,9 +567,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_enc_set_quality() // optional
  * - uhdr_enc_set_exif_data() // optional
  * - uhdr_enc_set_output_format() // optional
+ * - uhdr_enc_set_mastering_display_peak_brightness() // optional
  * - uhdr_enc_set_gainmap_scale_factor() // optional
  * - uhdr_enc_set_using_multi_channel_gainmap() // optional
  * - uhdr_enc_set_gainmap_gamma() // optional
+ * - uhdr_enc_set_min_max_content_boost() // optional
+ * - uhdr_enc_set_target_display_peak_brightness() // optional
  * - uhdr_encode()
  * - uhdr_get_encoded_stream()
  * - uhdr_release_encoder()
@@ -512,8 +615,9 @@ UHDR_EXTERN void uhdr_reset_encoder(uhdr_codec_private_t* enc);
  * @param[in]  data  pointer to input compressed stream
  * @param[in]  size  size of compressed stream
  *
- * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0
- * otherwise.
+ * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0 if any
+ *          errors are encountered during parsing process or if the image does not have primary
+ *          image or gainmap image or gainmap metadata
  */
 UHDR_EXTERN int is_uhdr_image(void* data, int size);
 
@@ -547,10 +651,12 @@ UHDR_EXTERN void uhdr_release_decoder(uhdr_codec_private_t* dec);
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec,
                                                  uhdr_compressed_image_t* img);
 
-/*!\brief Set output image format
+/*!\brief Set output image color format
  *
  * \param[in]  dec  decoder instance.
- * \param[in]  fmt  output image format.
+ * \param[in]  fmt  output image color format. Supported values are
+ *                  #UHDR_IMG_FMT_64bppRGBAHalfFloat, #UHDR_IMG_FMT_32bppRGBA1010102,
+ *                  #UHDR_IMG_FMT_32bppRGBA8888
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -558,7 +664,11 @@ UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec,
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* dec,
                                                           uhdr_img_fmt_t fmt);
 
-/*!\brief Set output color transfer
+/*!\brief Set output image color transfer characteristics. It should be noted that not all
+ * combinations of output color format and output transfer function are supported. #UHDR_CT_SRGB
+ * output color transfer shall be paired with #UHDR_IMG_FMT_32bppRGBA8888 only. #UHDR_CT_HLG,
+ * #UHDR_CT_PQ shall be paired with #UHDR_IMG_FMT_32bppRGBA1010102. #UHDR_CT_LINEAR shall be paired
+ * with #UHDR_IMG_FMT_64bppRGBAHalfFloat.
  *
  * \param[in]  dec  decoder instance.
  * \param[in]  ct  output color transfer
@@ -569,10 +679,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* 
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private_t* dec,
                                                               uhdr_color_transfer_t ct);
 
-/*!\brief Set output max display boost
+/*!\brief Set output display's HDR capacity. Value MUST be in linear scale. This value determines
+ * the weight by which the gain map coefficients are scaled. If no value is configured, no weight is
+ * applied to gainmap image.
  *
  * \param[in]  dec  decoder instance.
- * \param[in]  display_boost  max display boost
+ * \param[in]  display_boost  hdr capacity of target display. Any real number >= 1.0f
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -638,13 +750,31 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec);
  */
 UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
 
+/*!\brief Get base image (compressed)
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe process call is unsuccessful, memory block with base image data
+ * otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_base_image(uhdr_codec_private_t* dec);
+
+/*!\brief Get gain map image (compressed)
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe process call is unsuccessful, memory block with gainmap image data
+ * otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_gainmap_image(uhdr_codec_private_t* dec);
+
 /*!\brief Get gain map metadata
  *
  * \param[in]  dec  decoder instance.
  *
  * \return nullptr if probe process call is unsuccessful, gainmap metadata descriptor otherwise
  */
-UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec);
+UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gainmap_metadata(uhdr_codec_private_t* dec);
 
 /*!\brief Decode process call
  * After initializing the decoder context, call to this function will submit data for decoding. If
@@ -691,7 +821,7 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec);
  *
  * \return nullptr if decoded process call is unsuccessful, raw image descriptor otherwise
  */
-UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec);
+UHDR_EXTERN uhdr_raw_image_t* uhdr_get_decoded_gainmap_image(uhdr_codec_private_t* dec);
 
 /*!\brief Reset decoder instance.
  * Clears all previous settings and resets to default state and ready for re-initialization and
@@ -712,7 +842,7 @@ UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
  * NOTE: It is entirely possible for this API to have no effect on the encode/decode operation
  *
  * \param[in]  codec  codec instance.
- * \param[in]  enable  choice
+ * \param[in]  enable  enable enable/disbale gpu acceleration
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
  * otherwise.
