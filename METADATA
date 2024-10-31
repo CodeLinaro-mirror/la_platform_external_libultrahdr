@@ -8,12 +8,12 @@ third_party {
   license_type: NOTICE
   last_upgrade_date {
     year: 2024
-    month: 8
-    day: 22
+    month: 10
+    day: 25
   }
   identifier {
     type: "Git"
     value: "https://github.com/google/libultrahdr.git"
-    version: "bddf8da6c21c9b5c67002ae8919bd9e7ebe5f475"
+    version: "46f1337fbc63eee76d4554375269b95fd5f3ff58"
   }
 }
