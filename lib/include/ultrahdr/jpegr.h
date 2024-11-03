@@ -89,7 +89,8 @@ class JpegR {
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
         uhdr_enc_preset_t preset = kEncSpeedPresetAndroidDefault, float minContentBoost = FLT_MIN,
-        float maxContentBoost = FLT_MAX);
+        float maxContentBoost = FLT_MAX, float masteringDispPeakBrightness = -1.0f,
+        float targetDispPeakBrightness = -1.0f);
 
   /*!\brief Encode API-0.
    *
@@ -418,7 +419,16 @@ class JpegR {
   uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
                                          int xmp_size, uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
- protected:
+
+  /*!\brief This method is used to tone map a hdr image
+   *
+   * \param[in]            hdr_intent      hdr image descriptor
+   * \param[in, out]       sdr_intent      sdr image descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
+
   /*!\brief This method takes hdr intent and sdr intent and computes gainmap coefficient.
    *
    * This method is called in the encoding pipeline. It takes uncompressed 8-bit and 10-bit yuv
@@ -448,6 +458,7 @@ class JpegR {
                                     std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
                                     bool sdr_is_601 = false, bool use_luminance = true);
 
+ protected:
   /*!\brief This method takes sdr intent, gainmap image and gainmap metadata and computes hdr
    * intent. This method is called in the decoding pipeline. The output hdr intent image will have
    * same color gamut as sdr intent.
@@ -537,15 +548,6 @@ class JpegR {
                                   uhdr_gainmap_metadata_ext_t* metadata,
                                   uhdr_compressed_image_t* dest);
 
-  /*!\brief This method is used to tone map a hdr image
-   *
-   * \param[in]            hdr_intent      hdr image descriptor
-   * \param[in, out]       sdr_intent      sdr image descriptor
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
-
   /*!\brief This method is used to convert a raw image from one gamut space to another gamut space
    * in-place.
    *
@@ -557,6 +559,22 @@ class JpegR {
    */
   uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                uhdr_color_gamut_t dst_encoding);
+
+  /*!\brief Get mastering display peak brightness in nits
+   *
+   * \param[in]  transfer       intent's color transfer characteristics
+   *
+   * \return max display brightness in nits
+   */
+  float getMasteringDisplayMaxLuminance(uhdr_color_transfer_t transfer);
+
+  /*!\brief Get brightness corresponding to maximum code value
+   *
+   * \param[in]  transfer       intent's color transfer characteristics
+   *
+   * \return brightness corresponding to 1.0
+   */
+  float getLuminanceForMaxCodeValue(uhdr_color_transfer_t transfer);
 
   /*
    * This method will check the validity of the input arguments.
@@ -596,14 +614,16 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  void* mUhdrGLESCtxt;              // opengl es context
-  size_t mMapDimensionScaleFactor;  // gain map scale factor
-  int mMapCompressQuality;          // gain map quality factor
-  bool mUseMultiChannelGainMap;     // enable multichannel gain map
-  float mGamma;                     // gain map gamma parameter
-  uhdr_enc_preset_t mEncPreset;     // encoding speed preset
-  float mMinContentBoost;           // min content boost recommendation
-  float mMaxContentBoost;           // max content boost recommendation
+  void* mUhdrGLESCtxt;                 // opengl es context
+  size_t mMapDimensionScaleFactor;     // gain map scale factor
+  int mMapCompressQuality;             // gain map quality factor
+  bool mUseMultiChannelGainMap;        // enable multichannel gain map
+  float mGamma;                        // gain map gamma parameter
+  uhdr_enc_preset_t mEncPreset;        // encoding speed preset
+  float mMinContentBoost;              // min content boost recommendation
+  float mMaxContentBoost;              // max content boost recommendation
+  float mMasteringDispPeakBrightness;  // mastering display max luminance in nits
+  float mTargetDispPeakBrightness;     // target display max luminance in nits
 };
 
 struct GlobalTonemapOutputs {
