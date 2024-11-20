@@ -124,14 +124,14 @@ class GainMapMathTest : public testing::Test {
   Pixel Bt2100YuvGreenPixel() { return {173, -92, -117}; }
   Pixel Bt2100YuvBluePixel() { return {15, 128, -10}; }
 
-  float SrgbYuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
+  float SrgbYuvToLuminance(Color yuv_gamma, LuminanceFn luminanceFn) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
     float luminance_scaled = luminanceFn(rgb);
     return luminance_scaled * kSdrWhiteNits;
   }
 
-  float P3YuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
+  float P3YuvToLuminance(Color yuv_gamma, LuminanceFn luminanceFn) {
     Color rgb_gamma = p3YuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
     float luminance_scaled = luminanceFn(rgb);
@@ -139,7 +139,7 @@ class GainMapMathTest : public testing::Test {
   }
 
   float Bt2100YuvToLuminance(Color yuv_gamma, ColorTransformFn hdrInvOetf,
-                             ColorTransformFn gamutConversionFn, ColorCalculationFn luminanceFn,
+                             ColorTransformFn gamutConversionFn, LuminanceFn luminanceFn,
                              float scale_factor) {
     Color rgb_gamma = bt2100YuvToRgb(yuv_gamma);
     Color rgb = hdrInvOetf(rgb_gamma);
@@ -1142,25 +1142,25 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
+                      applyGainLUT(RgbBlack(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
+                      applyGainLUT(RgbWhite(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
+                      applyGainLUT(RgbRed(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
+                      applyGainLUT(RgbGreen(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
+                      applyGainLUT(RgbBlue(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, weight),
-                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, weight),
-                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, weight),
-                      applyGainLUT(RgbRed(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbRed(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, weight),
-                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, weight),
-                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost, &metadata));
     }
   }
 
@@ -1180,25 +1180,25 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
+                      applyGainLUT(RgbBlack(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
+                      applyGainLUT(RgbWhite(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
+                      applyGainLUT(RgbRed(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
+                      applyGainLUT(RgbGreen(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
+                      applyGainLUT(RgbBlue(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, weight),
-                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, weight),
-                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, weight),
-                      applyGainLUT(RgbRed(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbRed(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, weight),
-                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, weight),
-                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost, &metadata));
     }
   }
 
@@ -1218,25 +1218,25 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
+                      applyGainLUT(RgbBlack(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
+                      applyGainLUT(RgbWhite(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
+                      applyGainLUT(RgbRed(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
+                      applyGainLUT(RgbGreen(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
+                      applyGainLUT(RgbBlue(), value, gainLUT, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, weight),
-                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlack(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, weight),
-                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbWhite(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, weight),
-                      applyGainLUT(RgbRed(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbRed(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, weight),
-                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbGreen(), value, gainLUTWithBoost, &metadata));
       EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, weight),
-                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+                      applyGainLUT(RgbBlue(), value, gainLUTWithBoost, &metadata));
     }
   }
 }
@@ -1334,6 +1334,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
   metadata.max_content_boost = 4.0f;
   metadata.hdr_capacity_max = metadata.max_content_boost;
   metadata.hdr_capacity_min = metadata.min_content_boost;
+  metadata.offset_sdr = 0.0f;
+  metadata.offset_hdr = 0.0f;
   metadata.gamma = 1.0f;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
@@ -1625,6 +1627,8 @@ TEST_F(GainMapMathTest, ApplyMap) {
 
   metadata.min_content_boost = 1.0f / 8.0f;
   metadata.max_content_boost = 8.0f;
+  metadata.offset_sdr = 0.0f;
+  metadata.offset_hdr = 0.0f;
   metadata.gamma = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
