@@ -9,11 +9,11 @@ third_party {
   last_upgrade_date {
     year: 2024
     month: 11
-    day: 19
+    day: 21
   }
   identifier {
     type: "Git"
     value: "https://github.com/google/libultrahdr.git"
-    version: "4595a0e5d7cf6631ba3731004ebfc6c2ce58b85d"
+    version: "a265b540c6b4bb7a6bbe8f984749ec50ac5ee7fc"
   }
 }
