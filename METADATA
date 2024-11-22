@@ -14,6 +14,6 @@ third_party {
   identifier {
     type: "Git"
     value: "https://github.com/google/libultrahdr.git"
-    version: "a265b540c6b4bb7a6bbe8f984749ec50ac5ee7fc"
+    version: "285824d15db48ef11a556455ae0927c50e325d8b"
   }
 }

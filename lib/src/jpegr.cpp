@@ -214,7 +214,11 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent.get();
   if (isPixelFormatRgb(sdr_intent->fmt)) {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent.get());
+#else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent.get());
+#endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
@@ -249,7 +253,11 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent;
   if (isPixelFormatRgb(sdr_intent->fmt)) {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+#else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
+#endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
@@ -689,6 +697,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
+      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
+                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
+                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
@@ -719,6 +730,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            hdr_rgb = clampPixel(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
@@ -795,6 +807,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
+      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
+                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
+                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       float gainmap_min_th[3] = {127.0f, 127.0f, 127.0f};
       float gainmap_max_th[3] = {-128.0f, -128.0f, -128.0f};
 
@@ -828,6 +843,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            hdr_rgb = clampPixel(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
@@ -1029,25 +1045,33 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   // calculate secondary image length first, because the length will be written into the primary //
   // image xmp                                                                                   //
   /////////////////////////////////////////////////////////////////////////////////////////////////
+
   // XMP
-  const string xmp_secondary = generateXmpForSecondaryImage(*metadata);
-  // xmp_secondary_length = 2 bytes representing the length of the package +
-  //  + xmpNameSpaceLength = 29 bytes length
-  //  + length of xmp packet = xmp_secondary.size()
-  const size_t xmp_secondary_length = 2 + xmpNameSpaceLength + xmp_secondary.size();
+  string xmp_secondary;
+  size_t xmp_secondary_length;
+  if (kWriteXmpMetadata) {
+    xmp_secondary = generateXmpForSecondaryImage(*metadata);
+    // xmp_secondary_length = 2 bytes representing the length of the package +
+    //  + xmpNameSpaceLength = 29 bytes length
+    //  + length of xmp packet = xmp_secondary.size()
+    xmp_secondary_length = 2 + xmpNameSpaceLength + xmp_secondary.size();
+  }
+
   // ISO
   uhdr_gainmap_metadata_frac iso_secondary_metadata;
   std::vector<uint8_t> iso_secondary_data;
-  UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
-      metadata, &iso_secondary_metadata));
+  size_t iso_secondary_length;
+  if (kWriteIso21496_1Metadata) {
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
+        metadata, &iso_secondary_metadata));
 
-  UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&iso_secondary_metadata,
-                                                                   iso_secondary_data));
-
-  // iso_secondary_length = 2 bytes representing the length of the package +
-  //  + isoNameSpaceLength = 28 bytes length
-  //  + length of iso metadata packet = iso_secondary_data.size()
-  const size_t iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&iso_secondary_metadata,
+                                                                     iso_secondary_data));
+    // iso_secondary_length = 2 bytes representing the length of the package +
+    //  + isoNameSpaceLength = 28 bytes length
+    //  + length of iso metadata packet = iso_secondary_data.size()
+    iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
+  }
 
   size_t secondary_image_size = 2 /* 2 bytes length of APP1 sign */ + gainmap_compressed->data_sz;
   if (kWriteXmpMetadata) {
