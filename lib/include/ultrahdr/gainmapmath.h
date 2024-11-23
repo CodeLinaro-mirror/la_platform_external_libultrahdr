@@ -559,10 +559,18 @@ static inline Color clampPixelFloatLinear(Color e) {
   return {{{clampPixelFloatLinear(e.r), clampPixelFloatLinear(e.g), clampPixelFloatLinear(e.b)}}};
 }
 
+static float mapNonFiniteFloats(float val) {
+  if (std::isinf(val)) {
+    return val > 0 ? kMaxPixelFloatHdrLinear : 0.0f;
+  }
+  // nan
+  return 0.0f;
+}
+
 static inline Color sanitizePixel(Color e) {
-  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : 0.0f;
-  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : 0.0f;
-  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : 0.0f;
+  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : mapNonFiniteFloats(e.r);
+  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : mapNonFiniteFloats(e.g);
+  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : mapNonFiniteFloats(e.b);
   return {{{r, g, b}}};
 }
 
@@ -577,6 +585,10 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
     uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
+
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);
+#endif
 
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
 bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator);
