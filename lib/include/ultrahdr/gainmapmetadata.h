@@ -23,20 +23,22 @@
 #include <vector>
 
 namespace ultrahdr {
+constexpr uint8_t kIsMultiChannelMask = (1u << 7);
+constexpr uint8_t kUseBaseColorSpaceMask = (1u << 6);
 
 // Gain map metadata, for tone mapping between SDR and HDR.
 // This is the fraction version of {@code uhdr_gainmap_metadata_ext_t}.
 struct uhdr_gainmap_metadata_frac {
-  uint32_t gainMapMinN[3];
+  int32_t gainMapMinN[3];
   uint32_t gainMapMinD[3];
-  uint32_t gainMapMaxN[3];
+  int32_t gainMapMaxN[3];
   uint32_t gainMapMaxD[3];
   uint32_t gainMapGammaN[3];
   uint32_t gainMapGammaD[3];
 
-  uint32_t baseOffsetN[3];
+  int32_t baseOffsetN[3];
   uint32_t baseOffsetD[3];
-  uint32_t alternateOffsetN[3];
+  int32_t alternateOffsetN[3];
   uint32_t alternateOffsetD[3];
 
   uint32_t baseHdrHeadroomN;
@@ -58,6 +60,8 @@ struct uhdr_gainmap_metadata_frac {
 
   static uhdr_error_info_t gainmapMetadataFloatToFraction(const uhdr_gainmap_metadata_ext_t* from,
                                                           uhdr_gainmap_metadata_frac* to);
+
+  bool allChannelsIdentical() const;
 
   void dump() const {
     ALOGD("GAIN MAP METADATA: \n");
