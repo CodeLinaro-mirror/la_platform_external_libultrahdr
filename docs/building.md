@@ -8,7 +8,7 @@
 
 ### Requirements
 
-- [CMake](http://www.cmake.org) v3.13 or later
+- [CMake](http://www.cmake.org) v3.15 or later
 - C++ compiler, supporting at least C++17.
 - libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
   So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
@@ -52,7 +52,7 @@ Following is a list of available options:
 |:-------------|:--------------|:-----|
 | `CMAKE_BUILD_TYPE` | Release | See CMake documentation [here](https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html). |
 | `BUILD_SHARED_LIBS` | ON | See CMake documentation [here](https://cmake.org/cmake/help/latest/variable/BUILD_SHARED_LIBS.html). <ul><li> If `BUILD_SHARED_LIBS` is **OFF**, in the linking phase, static versions of dependencies are chosen. However, the executable targets are not purely static because the system libraries used are still dynamic. </li></ul> |
-| `UHDR_BUILD_EXAMPLES` | ON | Build sample application. This application demonstrates how to use [ultrahdr_api.h](ultrahdr_api.h). |
+| `UHDR_BUILD_EXAMPLES` | ON | Build sample application. This application demonstrates how to use [ultrahdr_api.h](../ultrahdr_api.h). |
 | `UHDR_BUILD_TESTS` | OFF | Build Unit Tests. Mostly for Devs. During development, different modules of libuhdr library are validated using GoogleTest framework. Developers after making changes to library are expected to run these tests to ensure every thing is functional. |
 | `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip). These are downloaded and extracted automatically during the build process for later benchmarking. <ul><li> Benchmark tests are not supported on Windows and this parameter is forced to **OFF** internally while building on **WIN32** platforms. </li></ul>|
 | `UHDR_BUILD_FUZZERS` | OFF | Build Fuzz Test Applications. Mostly for Devs. <ul><li> Fuzz applications are built by instrumenting the entire software suite. This includes dependency libraries. This is done by forcing `UHDR_BUILD_DEPS` to **ON** internally. </li></ul> |
@@ -271,6 +271,31 @@ This will generate the following files under `build_directory`:
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
+#### Target - Linux Platform - RISC-V Arch (32 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+# Download from https://github.com/riscv-collab/riscv-gnu-toolchain/releases
+sudo ln -s {your_dir}/riscv/bin/riscv32-unknown-linux-gnu-g++ /usr/bin/riscv32-linux-gnu-g++
+sudo ln -s {your_dir}/riscv/bin/riscv32-unknown-linux-gnu-gcc /usr/bin/riscv32-linux-gnu-gcc
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/riscv32-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
+
+This will generate the following files under `build_directory`:
+
+**libuhdr.so.{version}** - Shared library for the libuhdr API <br>
+**libuhdr.so** - Symlink to shared library <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
+**ultrahdr_app** - sample application <br>
+**ultrahdr_unit_test** - unit tests <br>
+
 #### Target - Linux Platform - LOONG Arch (64 bit)
 
 Install the prerequisite packages before building:
@@ -309,6 +334,21 @@ This will generate the following files under `build_directory`:
 **libuhdr.a** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
+
+#### Target - Wasm
+
+Install the prerequisite packages before building: Follow the instructions given [here](https://emscripten.org/docs/getting_started/downloads.html#installation-instructions-using-the-emsdk-recommended).
+
+Compile:
+```sh
+emcmake cmake -G Ninja ../
+ninja
+```
+
+This will generate the following files under `build_directory`:
+
+**ultrahdr_app.wasm** - wasm module <br>
+**ultrahdr_app.js** - sample application <br>
 
 ## Building Fuzzers
 
