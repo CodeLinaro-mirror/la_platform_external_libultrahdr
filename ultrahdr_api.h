@@ -23,6 +23,8 @@
 #ifndef ULTRAHDR_API_H
 #define ULTRAHDR_API_H
 
+#include <stddef.h>
+
 #if defined(_WIN32) || defined(__CYGWIN__)
 #if defined(UHDR_BUILDING_SHARED_LIBRARY)
 #define UHDR_API __declspec(dllexport)
@@ -69,11 +71,12 @@
  *   1.2.0           1.2.0                       Some bug fixes, introduced new API and renamed
  *                                               existing API which warrants a major version update.
  *                                               But indicated as a minor update.
+ *   1.3.0           1.3.0                       Some bug fixes, introduced new API.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 1
-#define UHDR_LIB_VER_MINOR 2
+#define UHDR_LIB_VER_MINOR 3
 #define UHDR_LIB_VER_PATCH 0
 
 #define UHDR_LIB_VERSION \
@@ -234,8 +237,8 @@ typedef struct uhdr_raw_image {
 /**\brief Compressed Image Descriptor */
 typedef struct uhdr_compressed_image {
   void* data;               /**< Pointer to a block of data to decode */
-  unsigned int data_sz;     /**< size of the data buffer */
-  unsigned int capacity;    /**< maximum size of the data buffer */
+  size_t data_sz;           /**< size of the data buffer */
+  size_t capacity;          /**< maximum size of the data buffer */
   uhdr_color_gamut_t cg;    /**< Color Gamut */
   uhdr_color_transfer_t ct; /**< Color Transfer */
   uhdr_color_range_t range; /**< Color Range */
@@ -243,10 +246,10 @@ typedef struct uhdr_compressed_image {
 
 /**\brief Buffer Descriptor */
 typedef struct uhdr_mem_block {
-  void* data;            /**< Pointer to a block of data to decode */
-  unsigned int data_sz;  /**< size of the data buffer */
-  unsigned int capacity; /**< maximum size of the data buffer */
-} uhdr_mem_block_t;      /**< alias for struct uhdr_mem_block */
+  void* data;       /**< Pointer to a block of data to decode */
+  size_t data_sz;   /**< size of the data buffer */
+  size_t capacity;  /**< maximum size of the data buffer */
+} uhdr_mem_block_t; /**< alias for struct uhdr_mem_block */
 
 /**\brief Gain map metadata. */
 typedef struct uhdr_gainmap_metadata {
