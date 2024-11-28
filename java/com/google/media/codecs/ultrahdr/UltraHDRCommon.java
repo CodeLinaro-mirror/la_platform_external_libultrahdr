@@ -79,8 +79,9 @@ public class UltraHDRCommon {
     public static final int UHDR_IMG_FMT_32bppRGBA8888 = 3;
 
     /**
-     * 64 bits per pixel RGBA color format, with 16-bit signed
-     * floating point red, green, blue, and alpha components.
+     * 64 bits per pixel, 16 bits per channel, half-precision floating point RGBA color format.
+     * In a pixel even though each channel has storage space of 16 bits, the nominal range is
+     * expected to be [0.0..(10000/203)]
      * <p>
      *
      * <pre>
@@ -125,7 +126,7 @@ public class UltraHDRCommon {
     /**
      * Display P3 color chromaticity coordinates with KR = 0.22897, KB = 0.07929
      */
-    public static final int UHDR_CG_DISPlAY_P3 = 1;
+    public static final int UHDR_CG_DISPLAY_P3 = 1;
 
     /**
      * BT.2020 color chromaticity coordinates with KR = 0.2627, KB = 0.0593

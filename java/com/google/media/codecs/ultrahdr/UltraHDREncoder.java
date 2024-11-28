@@ -20,6 +20,7 @@ import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_12bpp
 import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_24bppYCbCrP010;
 import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_32bppRGBA1010102;
 import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_32bppRGBA8888;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_64bppRGBAHalfFloat;
 
 import java.io.IOException;
 
@@ -112,6 +113,44 @@ public class UltraHDREncoder implements AutoCloseable {
                 && colorFormat != UHDR_IMG_FMT_32bppRGBA1010102) {
             throw new IOException("received unsupported color format. supported color formats are"
                     + "{UHDR_IMG_FMT_32bppRGBA8888, UHDR_IMG_FMT_32bppRGBA1010102}");
+        }
+        setRawImageNative(rgbBuff, width, height, rgbStride, colorGamut, colorTransfer, colorRange,
+                colorFormat, intent);
+    }
+
+    /**
+     * Add raw image info to encoder context. This interface is used for adding 64 bits-per-pixel
+     * packed formats. The function goes through all the arguments and checks for their sanity.
+     * If no anomalies are seen then the image info is added to internal list. Repeated calls to
+     * this function will replace the old entry with the current.
+     *
+     * @param rgbBuff       rgb buffer handle
+     * @param width         image width
+     * @param height        image height
+     * @param rgbStride     rgb buffer stride
+     * @param colorGamut    color gamut of input image
+     * @param colorTransfer color transfer of input image
+     * @param colorRange    color range of input image
+     * @param colorFormat   color format of input image
+     * @param intent        {@link UltraHDRCommon#UHDR_HDR_IMG} for hdr intent
+     * @throws IOException If parameters are not valid or current encoder instance is not valid
+     *                     or current encoder instance is not suitable for configuration
+     *                     exception is thrown
+     */
+    public void setRawImage(long[] rgbBuff, int width, int height, int rgbStride, int colorGamut,
+            int colorTransfer, int colorRange, int colorFormat, int intent) throws IOException {
+        if (rgbBuff == null) {
+            throw new IOException("received null for image data handle");
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IOException("received bad width and/or height, width or height is <= 0");
+        }
+        if (rgbStride <= 0) {
+            throw new IOException("received bad stride, stride is <= 0");
+        }
+        if (colorFormat != UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+            throw new IOException("received unsupported color format. supported color formats are"
+                    + "{UHDR_IMG_FMT_64bppRGBAHalfFloat}");
         }
         setRawImageNative(rgbBuff, width, height, rgbStride, colorGamut, colorTransfer, colorRange,
                 colorFormat, intent);
@@ -415,6 +454,25 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
+     * Set target display peak brightness in nits. This is used for configuring
+     * {@link UltraHDRDecoder.GainMapMetadata#hdrCapacityMax}. This value determines the weight
+     * by which the gain map coefficients are scaled during decode. If this is not configured,
+     * then default peak luminance of HDR intent's color transfer under test is used. For
+     * {@link UltraHDRCommon#UHDR_CT_HLG} input, this corresponds to 1000 nits and for
+     * {@link UltraHDRCommon#UHDR_CT_LINEAR} and {@link UltraHDRCommon#UHDR_CT_PQ} inputs, this
+     * corresponds to 10000 nits.
+     *
+     * @param nits target display peak brightness in nits. Any positive real number in range
+     *             [203, 10000]
+     * @throws IOException If parameters are not valid or current encoder instance
+     *                     is not valid or current encoder instance is not suitable
+     *                     for configuration exception is thrown
+     */
+    public void setTargetDisplayPeakBrightness(float nits) throws IOException {
+        setTargetDisplayPeakBrightnessNative(nits);
+    }
+
+    /**
      * Encode process call.
      * <p>
      * After initializing the encoder context, call to this function will submit data for
@@ -457,6 +515,10 @@ public class UltraHDREncoder implements AutoCloseable {
             int colorGamut, int colorTransfer, int colorRange, int colorFormat, int intent)
             throws IOException;
 
+    private native void setRawImageNative(long[] rgbBuff, int width, int height, int rgbStride,
+            int colorGamut, int colorTransfer, int colorRange, int colorFormat, int intent)
+            throws IOException;
+
     private native void setRawImageNative(short[] yBuff, short[] uvBuff, int width, int height,
             int yStride, int uvStride, int colorGamut, int colorTransfer, int colorRange,
             int colorFormat, int intent) throws IOException;
@@ -488,6 +550,8 @@ public class UltraHDREncoder implements AutoCloseable {
 
     private native void setMinMaxContentBoostNative(float minContentBoost,
             float maxContentBoost) throws IOException;
+
+    private native void setTargetDisplayPeakBrightnessNative(float nits) throws IOException;
 
     private native void encodeNative() throws IOException;
 
