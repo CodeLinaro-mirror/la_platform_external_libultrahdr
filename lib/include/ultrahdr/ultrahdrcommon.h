@@ -191,7 +191,7 @@ typedef struct uhdr_raw_image_ext : uhdr_raw_image_t {
 /**\brief extended compressed image descriptor */
 typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
   uhdr_compressed_image_ext(uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
-                            uhdr_color_range_t range, unsigned sz);
+                            uhdr_color_range_t range, size_t sz);
 
  private:
   std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
@@ -375,7 +375,6 @@ struct uhdr_encoder_private : uhdr_codec_private {
   uhdr_enc_preset_t m_enc_preset;
   float m_min_content_boost;
   float m_max_content_boost;
-  float m_mastering_disp_max_brightness;
   float m_target_disp_max_brightness;
 
   // internal data

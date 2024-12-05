@@ -23,7 +23,7 @@ if(POLICY CMP0091)
 endif()
 
 set(UHDR_MAJOR_VERSION 1)
-set(UHDR_MINOR_VERSION 2)
+set(UHDR_MINOR_VERSION 3)
 set(UHDR_PATCH_VERSION 0)
 project(libuhdr
         VERSION ${UHDR_MAJOR_VERSION}.${UHDR_MINOR_VERSION}.${UHDR_PATCH_VERSION}
@@ -60,6 +60,8 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm.*|ARM.*)")
   set(ARCH "arm")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv64")
   set(ARCH "riscv64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^riscv32")
+  set(ARCH "riscv32")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^loongarch64")
   set(ARCH "loong64")
 else()
@@ -93,7 +95,11 @@ if(NOT IS_MULTI)
   endif()
 endif()
 
-if(NOT DEFINED BUILD_SHARED_LIBS)
+if(EMSCRIPTEN)
+  # platform does not support dynamic linking?
+  message(STATUS "For wasm targets, selecting static only builds")
+  option(BUILD_SHARED_LIBS "Build shared libraries" FALSE)
+elseif(NOT DEFINED BUILD_SHARED_LIBS)
   message(STATUS "No target type chosen, selecting Shared")
   option(BUILD_SHARED_LIBS "Build shared libraries" TRUE)
 endif()
@@ -120,7 +126,7 @@ option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
-  message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+  message(FATAL_ERROR "Building tests not supported for wasm targets")
 endif()
 
 if(UHDR_BUILD_BENCHMARK AND WIN32)
@@ -128,7 +134,7 @@ if(UHDR_BUILD_BENCHMARK AND WIN32)
 endif()
 
 if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
-  message(FATAL_ERROR "Building benchmarks not supported in Web Assembly Path")
+  message(FATAL_ERROR "Building benchmarks not supported for wasm targets")
 endif()
 
 # side effects
@@ -227,6 +233,27 @@ if(MSVC)
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
   add_compile_options(/wd26812) # Prefer enum class over enum
 elseif(EMSCRIPTEN)
+  if(NOT UHDR_BUILD_DEPS)
+    include(CheckCSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "--use-port=libjpeg")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "--use-port=libjpeg")
+    check_c_source_compiles([=[
+       #include <stdio.h>
+       #include <jpeglib.h>
+       int main(void) {
+         struct jpeg_compress_struct cinfo;
+         struct jpeg_error_mgr jerr;
+         cinfo.err=jpeg_std_error(&jerr);
+         jpeg_create_compress(&cinfo);
+         jpeg_destroy_compress(&cinfo);
+         return 0;
+       }
+     ]=] HAVE_JPEG)
+    if(NOT HAVE_JPEG)
+      message(FATAL_ERROR "Could NOT compile with --use-port=libjpeg, resolve this \
+                           or try 'cmake -DUHDR_BUILD_DEPS=1'")
+    endif()
+  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -254,6 +281,9 @@ else()
   elseif(ARCH STREQUAL "riscv64")
     add_compile_options(-march=rv64gc)
     add_compile_options(-mabi=lp64d)
+  elseif(ARCH STREQUAL "riscv32")
+    add_compile_options(-march=rv32gc)
+    add_compile_options(-mabi=ilp32d)
   elseif(ARCH STREQUAL "loong64")
     add_compile_options(-march=loongarch64)
     add_compile_options(-mabi=lp64d)
@@ -576,16 +606,17 @@ endif()
 target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
-  add_executable(ultrahdr_app "${EXAMPLES_DIR}/ultrahdr_app.cpp")
-  add_dependencies(ultrahdr_app ${UHDR_CORE_LIB_NAME})
-  target_compile_options(ultrahdr_app PRIVATE ${UHDR_WERROR_FLAGS})
+  set(UHDR_SAMPLE_APP ultrahdr_app)
+  add_executable(${UHDR_SAMPLE_APP} "${EXAMPLES_DIR}/ultrahdr_app.cpp")
+  add_dependencies(${UHDR_SAMPLE_APP} ${UHDR_CORE_LIB_NAME})
+  target_compile_options(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_WERROR_FLAGS})
   if(UHDR_BUILD_FUZZERS)
-    target_link_options(ultrahdr_app PRIVATE -fsanitize=fuzzer-no-link)
+    target_link_options(${UHDR_SAMPLE_APP} PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   if(UHDR_ENABLE_STATIC_LINKING)
-    target_link_options(ultrahdr_app PRIVATE -static)
+    target_link_options(${UHDR_SAMPLE_APP} PRIVATE -static)
   endif()
-  target_link_libraries(ultrahdr_app PRIVATE ${UHDR_CORE_LIB_NAME})
+  target_link_libraries(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_CORE_LIB_NAME})
 endif()
 
 if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
@@ -632,8 +663,8 @@ if(UHDR_BUILD_BENCHMARK)
   endif()
   target_link_libraries(ultrahdr_bm ${UHDR_CORE_LIB_NAME} ${BENCHMARK_LIBRARIES})
 
-  set(RES_FILE "${TESTS_DIR}/data/UltrahdrBenchmarkTestRes-1.1.zip")
-  set(RES_FILE_MD5SUM "2f0ddc1e9e33ec8b20038703abb1e3a1")
+  set(RES_FILE "${TESTS_DIR}/data/UltrahdrBenchmarkTestRes-1.2.zip")
+  set(RES_FILE_MD5SUM "31fc352444f95bc1ab4b9d6e397de6c1")
   set(GET_RES_FILE TRUE)
   if(EXISTS ${RES_FILE})
     file(MD5 ${RES_FILE} CURR_MD5_SUM)
@@ -647,7 +678,7 @@ if(UHDR_BUILD_BENCHMARK)
 
   if(GET_RES_FILE)
     message("-- Downloading benchmark test resources")
-    set(RES_URL "https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip")
+    set(RES_URL "https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.2.zip")
     file(DOWNLOAD ${RES_URL} ${RES_FILE} STATUS result EXPECTED_MD5 ${RES_FILE_MD5SUM})
     list(GET result 0 retval)
     if(retval)
@@ -766,7 +797,7 @@ if(UHDR_ENABLE_INSTALL)
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC}
+    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC} ${UHDR_SAMPLE_APP}
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
