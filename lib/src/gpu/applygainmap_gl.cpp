@@ -136,13 +136,15 @@ static const std::string applyGainMapShader = R"__SHADER__(
   uniform float logMinBoost;
   uniform float logMaxBoost;
   uniform float weight;
-  uniform float displayBoost;
+  uniform float offsetSdr;
+  uniform float offsetHdr;
+  uniform float normalize;
 
   float applyGainMapSample(const float channel, float gain) {
     gain = pow(gain, 1.0f / gamma);
     float logBoost = logMinBoost * (1.0f - gain) + logMaxBoost * gain;
     logBoost = exp2(logBoost * weight);
-    return channel * logBoost / displayBoost;
+    return ((channel + offsetSdr) * logBoost - offsetHdr) / normalize;
   }
 
   vec3 applyGain(const vec3 color, const vec3 gain) {
@@ -182,6 +184,21 @@ static const std::string pqOETFShader = R"__SHADER__(
   }
 )__SHADER__";
 
+static const std::string hlgInverseOOTFShader = R"__SHADER__(
+  float InverseOOTF(const float linear) {
+    const float kOotfGamma = 1.2f;
+    return pow(linear, 1.0f / kOotfGamma);
+  }
+
+  vec3 InverseOOTF(const vec3 linear) {
+    return vec3(InverseOOTF(linear.r), InverseOOTF(linear.g), InverseOOTF(linear.b));
+  }
+)__SHADER__";
+
+static const std::string IdentityInverseOOTFShader = R"__SHADER__(
+  vec3 InverseOOTF(const vec3 linear) { return linear; }
+)__SHADER__";
+
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
                                           uhdr_color_transfer output_ct) {
   std::string shader_code = R"__SHADER__(#version 300 es
@@ -205,10 +222,13 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
                                                          : getGainMapSampleMultiChannel);
   shader_code.append(applyGainMapShader);
   if (output_ct == UHDR_CT_LINEAR) {
+    shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(linearOETFShader);
   } else if (output_ct == UHDR_CT_HLG) {
+    shader_code.append(hlgInverseOOTFShader);
     shader_code.append(hlgOETFShader);
   } else if (output_ct == UHDR_CT_PQ) {
+    shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(pqOETFShader);
   }
 
@@ -219,6 +239,7 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
+      rgb_hdr = InverseOOTF(rgb_hdr);
       vec3 rgb_gamma_hdr = OETF(rgb_hdr);
       FragColor = vec4(rgb_gamma_hdr, 1.0);
     }
@@ -298,13 +319,17 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   GLint logMinBoostLocation = glGetUniformLocation(shaderProgram, "logMinBoost");
   GLint logMaxBoostLocation = glGetUniformLocation(shaderProgram, "logMaxBoost");
   GLint weightLocation = glGetUniformLocation(shaderProgram, "weight");
-  GLint displayBoostLocation = glGetUniformLocation(shaderProgram, "displayBoost");
+  GLint offsetSdrLocation = glGetUniformLocation(shaderProgram, "offsetSdr");
+  GLint offsetHdrLocation = glGetUniformLocation(shaderProgram, "offsetHdr");
+  GLint normalizeLocation = glGetUniformLocation(shaderProgram, "normalize");
 
   glUniform1i(pWidthLocation, sdr_intent->w);
   glUniform1i(pHeightLocation, sdr_intent->h);
   glUniform1f(gammaLocation, gainmap_metadata->gamma);
   glUniform1f(logMinBoostLocation, log2(gainmap_metadata->min_content_boost));
   glUniform1f(logMaxBoostLocation, log2(gainmap_metadata->max_content_boost));
+  glUniform1f(offsetSdrLocation, gainmap_metadata->offset_sdr);
+  glUniform1f(offsetHdrLocation, gainmap_metadata->offset_hdr);
   float gainmap_weight;
   if (display_boost != gainmap_metadata->hdr_capacity_max) {
     gainmap_weight =
@@ -316,7 +341,10 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
     gainmap_weight = 1.0f;
   }
   glUniform1f(weightLocation, gainmap_weight);
-  glUniform1f(displayBoostLocation, display_boost);
+  float normalize = 1.0f;
+  if (output_ct == UHDR_CT_HLG) normalize = kHlgMaxNits / kSdrWhiteNits;
+  else if (output_ct == UHDR_CT_PQ) normalize = kPqMaxNits / kSdrWhiteNits;
+  glUniform1f(normalizeLocation, normalize);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, yuvTexture);
