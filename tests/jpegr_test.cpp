@@ -66,11 +66,11 @@ typedef enum {
  */
 class UhdrUnCompressedStructWrapper {
  public:
-  UhdrUnCompressedStructWrapper(size_t width, size_t height, UhdrInputFormat format);
+  UhdrUnCompressedStructWrapper(unsigned int width, unsigned int height, UhdrInputFormat format);
   ~UhdrUnCompressedStructWrapper() = default;
 
   bool setChromaMode(bool isChromaContiguous);
-  bool setImageStride(size_t lumaStride, size_t chromaStride);
+  bool setImageStride(unsigned int lumaStride, unsigned int chromaStride);
   bool setImageColorGamut(ultrahdr_color_gamut colorGamut);
   bool allocateMemory();
   bool loadRawResource(const char* fileName);
@@ -92,7 +92,7 @@ class UhdrUnCompressedStructWrapper {
  */
 class UhdrCompressedStructWrapper {
  public:
-  UhdrCompressedStructWrapper(size_t width, size_t height);
+  UhdrCompressedStructWrapper(unsigned int width, unsigned int height);
   ~UhdrCompressedStructWrapper() = default;
 
   bool allocateMemory();
@@ -101,11 +101,12 @@ class UhdrCompressedStructWrapper {
  private:
   std::unique_ptr<uint8_t[]> mData;
   jpegr_compressed_struct mImg{};
-  size_t mWidth;
-  size_t mHeight;
+  unsigned int mWidth;
+  unsigned int mHeight;
 };
 
-UhdrUnCompressedStructWrapper::UhdrUnCompressedStructWrapper(size_t width, size_t height,
+UhdrUnCompressedStructWrapper::UhdrUnCompressedStructWrapper(unsigned int width,
+                                                             unsigned int height,
                                                              UhdrInputFormat format) {
   mImg.data = nullptr;
   mImg.width = width;
@@ -127,7 +128,8 @@ bool UhdrUnCompressedStructWrapper::setChromaMode(bool isChromaContiguous) {
   return true;
 }
 
-bool UhdrUnCompressedStructWrapper::setImageStride(size_t lumaStride, size_t chromaStride) {
+bool UhdrUnCompressedStructWrapper::setImageStride(unsigned int lumaStride,
+                                                   unsigned int chromaStride) {
   if (mLumaData.get() != nullptr) {
     std::cerr << "Object has sailed, no further modifications are allowed" << std::endl;
     return false;
@@ -255,7 +257,7 @@ bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
 
 jr_uncompressed_ptr UhdrUnCompressedStructWrapper::getImageHandle() { return &mImg; }
 
-UhdrCompressedStructWrapper::UhdrCompressedStructWrapper(size_t width, size_t height) {
+UhdrCompressedStructWrapper::UhdrCompressedStructWrapper(unsigned int width, unsigned int height) {
   mWidth = width;
   mHeight = height;
 }
@@ -287,7 +289,7 @@ static bool writeFile(const char* filename, void*& result, int length) {
 }
 #endif
 
-static bool readFile(const char* fileName, void*& result, int maxLength, int& length) {
+static bool readFile(const char* fileName, void*& result, size_t maxLength, size_t& length) {
   std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     length = ifd.tellg();
@@ -1409,7 +1411,7 @@ TEST(JpegRTest, writeXmpThenRead) {
   metadata_expected.hdr_capacity_min = 1.0f;
   metadata_expected.hdr_capacity_max = metadata_expected.max_content_boost;
   const std::string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
-  const int nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
+  const size_t nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
 
   std::string xmp = generateXmpForSecondaryImage(metadata_expected);
 
@@ -1474,6 +1476,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   status = uhdr_encode(obj);
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -1535,6 +1545,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -1754,6 +1772,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -1970,6 +1996,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -2131,6 +2165,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -2169,7 +2211,7 @@ class Profiler {
 
   void timerStop() { QueryPerformanceCounter(&mEndingTime); }
 
-  int64_t elapsedTime() {
+  double elapsedTime() {
     LARGE_INTEGER frequency;
     LARGE_INTEGER elapsedMicroseconds;
     QueryPerformanceFrequency(&frequency);

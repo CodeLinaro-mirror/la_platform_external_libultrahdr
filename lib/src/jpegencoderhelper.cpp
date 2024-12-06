@@ -72,7 +72,7 @@ static boolean emptyOutputBuffer(j_compress_ptr cinfo) {
   buffer.resize(oldsize + dest->kBlockSize);
   dest->next_output_byte = &buffer[oldsize];
   dest->free_in_buffer = dest->kBlockSize;
-  return true;
+  return TRUE;
 }
 
 /*!\brief  called by jpeg_finish_compress() to flush out all the remaining encoded data. client
@@ -105,21 +105,20 @@ static void outputErrorMessage(j_common_ptr cinfo) {
 }
 
 uhdr_error_info_t JpegEncoderHelper::compressImage(const uhdr_raw_image_t* img, const int qfactor,
-                                                   const void* iccBuffer,
-                                                   const unsigned int iccSize) {
+                                                   const void* iccBuffer, const size_t iccSize) {
   const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]),
                            reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_U]),
                            reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_V])};
-  const size_t strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
-                          img->stride[UHDR_PLANE_V]};
+  const unsigned int strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
+                                img->stride[UHDR_PLANE_V]};
   return compressImage(planes, strides, img->w, img->h, img->fmt, qfactor, iccBuffer, iccSize);
 }
 
 uhdr_error_info_t JpegEncoderHelper::compressImage(const uint8_t* planes[3],
-                                                   const size_t strides[3], const int width,
+                                                   const unsigned int strides[3], const int width,
                                                    const int height, const uhdr_img_fmt_t format,
                                                    const int qfactor, const void* iccBuffer,
-                                                   const unsigned int iccSize) {
+                                                   const size_t iccSize) {
   return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
 }
 
@@ -135,10 +134,10 @@ uhdr_compressed_image_t JpegEncoderHelper::getCompressedImage() {
   return img;
 }
 
-uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3],
+uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const unsigned int strides[3],
                                             const int width, const int height,
                                             const uhdr_img_fmt_t format, const int qfactor,
-                                            const void* iccBuffer, const unsigned int iccSize) {
+                                            const void* iccBuffer, const size_t iccSize) {
   jpeg_compress_struct cinfo;
   jpeg_error_mgr_impl myerr;
   uhdr_error_info_t status = g_no_error;
@@ -168,6 +167,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     // initialize configuration parameters
     cinfo.image_width = width;
     cinfo.image_height = height;
+    bool isGainMapImg = true;
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       cinfo.input_components = 3;
       cinfo.in_color_space = JCS_RGB;
@@ -175,9 +175,19 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
       if (format == UHDR_IMG_FMT_8bppYCbCr400) {
         cinfo.input_components = 1;
         cinfo.in_color_space = JCS_GRAYSCALE;
-      } else {
+      } else if (format == UHDR_IMG_FMT_12bppYCbCr420 || format == UHDR_IMG_FMT_24bppYCbCr444 ||
+                 format == UHDR_IMG_FMT_16bppYCbCr422 || format == UHDR_IMG_FMT_16bppYCbCr440 ||
+                 format == UHDR_IMG_FMT_12bppYCbCr411 || format == UHDR_IMG_FMT_10bppYCbCr410) {
         cinfo.input_components = 3;
         cinfo.in_color_space = JCS_YCbCr;
+        isGainMapImg = false;
+      } else {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unrecognized input color format for encoding, color format %d", format);
+        jpeg_destroy_compress(&cinfo);
+        return status;
       }
     }
     jpeg_set_defaults(&cinfo);
@@ -197,6 +207,13 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     jpeg_start_compress(&cinfo, TRUE);
     if (iccBuffer != nullptr && iccSize > 0) {
       jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+    }
+    if (isGainMapImg) {
+      char comment[255];
+      snprintf(comment, sizeof comment,
+               "Source: google libuhdr v%s, Coder: libjpeg v%d, Attrib: GainMap Image",
+               UHDR_LIB_VERSION_STR, JPEG_LIB_VERSION);
+      jpeg_write_marker(&cinfo, JPEG_COM, reinterpret_cast<JOCTET*>(comment), strlen(comment));
     }
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       while (cinfo.next_scanline < cinfo.image_height) {
@@ -234,7 +251,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
 
 uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
                                                    const uint8_t* planes[3],
-                                                   const size_t strides[3]) {
+                                                   const unsigned int strides[3]) {
   JSAMPROW mcuRows[kMaxNumComponents][2 * DCTSIZE];
   JSAMPROW mcuRowsTmp[kMaxNumComponents][2 * DCTSIZE];
   size_t alignedPlaneWidth[kMaxNumComponents]{};
@@ -274,7 +291,7 @@ uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
         JDIMENSION scanline = mcu_scanline_start[i] + j;
 
         if (scanline < mPlaneHeight[i]) {
-          mcuRows[i][j] = const_cast<uint8_t*>(planes[i] + scanline * strides[i]);
+          mcuRows[i][j] = const_cast<uint8_t*>(planes[i] + (size_t)scanline * strides[i]);
           if (strides[i] < alignedPlaneWidth[i]) {
             memcpy(mcuRowsTmp[i][j], mcuRows[i][j], mPlaneWidth[i]);
           }
