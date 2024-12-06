@@ -100,20 +100,23 @@ typedef enum uhdr_img_fmt {
       3, /**< 32 bits per pixel RGBA color format, with 8-bit red, green, blue
         and alpha components. Using 32-bit little-endian representation,
         colors stored as Red 7:0, Green 15:8, Blue 23:16, Alpha 31:24. */
-  UHDR_IMG_FMT_64bppRGBAHalfFloat = 4, /**< 64 bits per pixel RGBA color format, with 16-bit signed
-                                   floating point red, green, blue, and alpha components */
-  UHDR_IMG_FMT_32bppRGBA1010102 = 5,   /**< 32 bits per pixel RGBA color format, with 10-bit red,
-                                      green,   blue, and 2-bit alpha components. Using 32-bit
-                                      little-endian   representation, colors stored as Red 9:0, Green
-                                      19:10, Blue   29:20, and Alpha 31:30. */
-  UHDR_IMG_FMT_24bppYCbCr444 = 6,      /**< 8-bit-per component 4:4:4 YCbCr planar format */
-  UHDR_IMG_FMT_16bppYCbCr422 = 7,      /**< 8-bit-per component 4:2:2 YCbCr planar format */
-  UHDR_IMG_FMT_16bppYCbCr440 = 8,      /**< 8-bit-per component 4:4:0 YCbCr planar format */
-  UHDR_IMG_FMT_12bppYCbCr411 = 9,      /**< 8-bit-per component 4:1:1 YCbCr planar format */
-  UHDR_IMG_FMT_10bppYCbCr410 = 10,     /**< 8-bit-per component 4:1:0 YCbCr planar format */
-  UHDR_IMG_FMT_24bppRGB888 = 11,       /**< 8-bit-per component RGB interleaved format */
-  UHDR_IMG_FMT_30bppYCbCr444 = 12,     /**< 10-bit-per component 4:4:4 YCbCr planar format */
-} uhdr_img_fmt_t;                      /**< alias for enum uhdr_img_fmt */
+  UHDR_IMG_FMT_64bppRGBAHalfFloat =
+      4, /**< 64 bits per pixel, 16 bits per channel, half-precision floating point RGBA color
+            format. colors stored as Red 15:0, Green 31:16, Blue 47:32, Alpha 63:48. In a pixel
+            even though each channel has storage space of 16 bits, the nominal range is expected to
+            be [0.0..(10000/203)] */
+  UHDR_IMG_FMT_32bppRGBA1010102 = 5, /**< 32 bits per pixel RGBA color format, with 10-bit red,
+                                    green,   blue, and 2-bit alpha components. Using 32-bit
+                                    little-endian   representation, colors stored as Red 9:0, Green
+                                    19:10, Blue   29:20, and Alpha 31:30. */
+  UHDR_IMG_FMT_24bppYCbCr444 = 6,    /**< 8-bit-per component 4:4:4 YCbCr planar format */
+  UHDR_IMG_FMT_16bppYCbCr422 = 7,    /**< 8-bit-per component 4:2:2 YCbCr planar format */
+  UHDR_IMG_FMT_16bppYCbCr440 = 8,    /**< 8-bit-per component 4:4:0 YCbCr planar format */
+  UHDR_IMG_FMT_12bppYCbCr411 = 9,    /**< 8-bit-per component 4:1:1 YCbCr planar format */
+  UHDR_IMG_FMT_10bppYCbCr410 = 10,   /**< 8-bit-per component 4:1:0 YCbCr planar format */
+  UHDR_IMG_FMT_24bppRGB888 = 11,     /**< 8-bit-per component RGB interleaved format */
+  UHDR_IMG_FMT_30bppYCbCr444 = 12,   /**< 10-bit-per component 4:4:4 YCbCr planar format */
+} uhdr_img_fmt_t;                    /**< alias for enum uhdr_img_fmt */
 
 /*!\brief List of supported color gamuts */
 typedef enum uhdr_color_gamut {
@@ -386,24 +389,6 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
-/*!\brief Set peak brightness of the reference display used during content mastering. For
- * #UHDR_CT_HLG, #UHDR_CT_LINEAR inputs, this corresponds to the brightness level of the maximum
- * code value 1.0.
- *
- * For #UHDR_CT_HLG, default mastering display peak luminance is 1000 nits. For #UHDR_CT_LINEAR
- * content, there is no default value, needs to be configured, otherwise, error is thrown during
- * encoding. For #UHDR_CT_PQ content, default mastering display peak luminance is 10000 nits.
- *
- * \param[in]  enc  encoder instance.
- * \param[in]  nits  mastering display peak brightness in nits. Any positive real number in range
- *                   [203, 10000].
- *
- * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
- *                           #UHDR_CODEC_INVALID_PARAM otherwise.
- */
-UHDR_EXTERN uhdr_error_info_t
-uhdr_enc_set_mastering_display_peak_brightness(uhdr_codec_private_t* enc, float nits);
-
 /*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
@@ -459,9 +444,11 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* e
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc,
                                                                  float min_boost, float max_boost);
 
-/*!\brief Set target display peak brightness in nits. This value determines the weight by which
- * the gain map coefficients are scaled during decode. If this is not configured, then mastering
- * display peak brightness setting is used.
+/*!\brief Set target display peak brightness in nits. This is used for configuring #hdr_capacity_max
+ * of gainmap metadata. This value determines the weight by which the gain map coefficients are
+ * scaled during decode. If this is not configured, then default peak luminance of HDR intent's
+ * color transfer under test is used. For #UHDR_CT_HLG, this corresponds to 1000 nits and for
+ * #UHDR_CT_LINEAR and #UHDR_CT_PQ, this corresponds to 10000 nits.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  nits  target display peak brightness in nits. Any positive real number in range
@@ -514,8 +501,6 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  *   - uhdr_enc_set_quality()
  * - If the application wants to insert exif data
  *   - uhdr_enc_set_exif_data()
- * - If the application wants to set reference display peak brightness
- *   - uhdr_enc_set_mastering_display_peak_brightness()
  * - If the application wants to set gainmap scale factor
  *   - uhdr_enc_set_gainmap_scale_factor()
  * - If the application wants to enable multi channel gain map
@@ -567,7 +552,6 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_enc_set_quality() // optional
  * - uhdr_enc_set_exif_data() // optional
  * - uhdr_enc_set_output_format() // optional
- * - uhdr_enc_set_mastering_display_peak_brightness() // optional
  * - uhdr_enc_set_gainmap_scale_factor() // optional
  * - uhdr_enc_set_using_multi_channel_gainmap() // optional
  * - uhdr_enc_set_gainmap_gamma() // optional
