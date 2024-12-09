@@ -89,8 +89,7 @@ class JpegR {
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
         uhdr_enc_preset_t preset = kEncSpeedPresetAndroidDefault, float minContentBoost = FLT_MIN,
-        float maxContentBoost = FLT_MAX, float masteringDispPeakBrightness = -1.0f,
-        float targetDispPeakBrightness = -1.0f);
+        float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f);
 
   /*!\brief Encode API-0.
    *
@@ -419,7 +418,6 @@ class JpegR {
   uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
                                          int xmp_size, uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
-
   /*!\brief This method is used to tone map a hdr image
    *
    * \param[in]            hdr_intent      hdr image descriptor
@@ -560,22 +558,6 @@ class JpegR {
   uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                uhdr_color_gamut_t dst_encoding);
 
-  /*!\brief Get mastering display peak brightness in nits
-   *
-   * \param[in]  transfer       intent's color transfer characteristics
-   *
-   * \return max display brightness in nits
-   */
-  float getMasteringDisplayMaxLuminance(uhdr_color_transfer_t transfer);
-
-  /*!\brief Get brightness corresponding to maximum code value
-   *
-   * \param[in]  transfer       intent's color transfer characteristics
-   *
-   * \return brightness corresponding to 1.0
-   */
-  float getLuminanceForMaxCodeValue(uhdr_color_transfer_t transfer);
-
   /*
    * This method will check the validity of the input arguments.
    *
@@ -614,33 +596,39 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  void* mUhdrGLESCtxt;                 // opengl es context
-  size_t mMapDimensionScaleFactor;     // gain map scale factor
-  int mMapCompressQuality;             // gain map quality factor
-  bool mUseMultiChannelGainMap;        // enable multichannel gain map
-  float mGamma;                        // gain map gamma parameter
-  uhdr_enc_preset_t mEncPreset;        // encoding speed preset
-  float mMinContentBoost;              // min content boost recommendation
-  float mMaxContentBoost;              // max content boost recommendation
-  float mMasteringDispPeakBrightness;  // mastering display max luminance in nits
-  float mTargetDispPeakBrightness;     // target display max luminance in nits
+  void* mUhdrGLESCtxt;              // opengl es context
+  size_t mMapDimensionScaleFactor;  // gain map scale factor
+  int mMapCompressQuality;          // gain map quality factor
+  bool mUseMultiChannelGainMap;     // enable multichannel gain map
+  float mGamma;                     // gain map gamma parameter
+  uhdr_enc_preset_t mEncPreset;     // encoding speed preset
+  float mMinContentBoost;           // min content boost recommendation
+  float mMaxContentBoost;           // max content boost recommendation
+  float mTargetDispPeakBrightness;  // target display max luminance in nits
 };
 
+/*
+ * Holds tonemapping results of a pixel
+ */
 struct GlobalTonemapOutputs {
   std::array<float, 3> rgb_out;
   float y_hdr;
   float y_sdr;
 };
 
-// Applies a global tone mapping, based on Chrome's HLG/PQ rendering implemented
-// at
-// https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/color_transform.cc;l=1198-1232;drc=ac505aff1d29ec3bfcf317cb77d5e196a3664e92
-// `rgb_in` is expected to be in the normalized range of [0.0, 1.0] and
-// `rgb_out` is returned in this same range. `headroom` describes the ratio
-// between the HDR and SDR peak luminances and must be > 1. The `y_sdr` output
-// is in the range [0.0, 1.0] while `y_hdr` is in the range [0.0, headroom].
+/*!\brief Applies a global tone mapping, based on Chrome's HLG/PQ rendering implemented at
+ *  https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/color_transform.cc;l=1197-1252;drc=ac505aff1d29ec3bfcf317cb77d5e196a3664e92
+ *
+ * \param[in]       rgb_in              hdr intent pixel in array format.
+ * \param[in]       headroom            ratio between hdr and sdr peak luminances. Must be greater
+ *                                      than 1. If the input is normalized, then this is used to
+ *                                      stretch it linearly from [0.0..1.0] to [0.0..headroom]
+ * \param[in]       is_normalized       marker to differentiate, if the input is normalized.
+ *
+ * \return tonemapped pixel in the normalized range [0.0..1.0]
+ */
 GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom,
-                                   float luminance);
+                                   bool is_normalized);
 
 }  // namespace ultrahdr
 
