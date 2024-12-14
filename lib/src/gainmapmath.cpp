@@ -602,39 +602,39 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
 // Color space conversions
 
 Color bt709ToP3(Color e) {
-  return {{{clampPixelFloat(0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b),
-            clampPixelFloat(0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b),
-            clampPixelFloat(0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b)}}};
+  return {{{0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
+            0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b,
+            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b}}};
 }
 
 Color bt709ToBt2100(Color e) {
-  return {{{clampPixelFloat(0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b),
-            clampPixelFloat(0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b),
-            clampPixelFloat(0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b)}}};
+  return {{{0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
+            0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b,
+            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b}}};
 }
 
 Color p3ToBt709(Color e) {
-  return {{{clampPixelFloat(1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b),
-            clampPixelFloat(-0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b),
-            clampPixelFloat(-0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b)}}};
+  return {{{1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
+            -0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b,
+            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b}}};
 }
 
 Color p3ToBt2100(Color e) {
-  return {{{clampPixelFloat(0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b),
-            clampPixelFloat(0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b),
-            clampPixelFloat(-0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b)}}};
+  return {{{0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
+            0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b,
+            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b}}};
 }
 
 Color bt2100ToBt709(Color e) {
-  return {{{clampPixelFloat(1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b),
-            clampPixelFloat(-0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b),
-            clampPixelFloat(-0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b)}}};
+  return {{{1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
+            -0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b,
+            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b}}};
 }
 
 Color bt2100ToP3(Color e) {
-  return {{{clampPixelFloat(1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b),
-            clampPixelFloat(-0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b),
-            clampPixelFloat(0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b)}}};
+  return {{{1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
+            -0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b,
+            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b}}};
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
@@ -953,8 +953,8 @@ float sampleMap(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t
 
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by using & (map_scale_factor - 1)
-  int offset_x = x % map_scale_factor;
-  int offset_y = y % map_scale_factor;
+  size_t offset_x = x % map_scale_factor;
+  size_t offset_y = y % map_scale_factor;
 
   float* weights = weightTables.mWeights;
   if (x_lower == x_upper && y_lower == y_upper)
@@ -1077,8 +1077,8 @@ Color sampleMap3Channel(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x
 
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by using & (map_scale_factor - 1)
-  int offset_x = x % map_scale_factor;
-  int offset_y = y % map_scale_factor;
+  size_t offset_x = x % map_scale_factor;
+  size_t offset_y = y % map_scale_factor;
 
   float* weights = weightTables.mWeights;
   if (x_lower == x_upper && y_lower == y_upper)
@@ -1459,8 +1459,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
         pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
 
-        pixel[0].u = pixel[0].u * 255.0f + 0.5 + 128.0f;
-        pixel[0].v = pixel[0].v * 255.0f + 0.5 + 128.0f;
+        pixel[0].u = pixel[0].u * 255.0f + 0.5f + 128.0f;
+        pixel[0].v = pixel[0].v * 255.0f + 0.5f + 128.0f;
 
         pixel[0].u = CLIP3(pixel[0].u, 0.0f, 255.0f);
         pixel[0].v = CLIP3(pixel[0].v, 0.0f, 255.0f);
@@ -1494,8 +1494,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         pixel.y = CLIP3(pixel.y, 0.0f, 255.0f);
         yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint8_t(pixel.y);
 
-        pixel.u = pixel.u * 255.0f + 0.5 + 128.0f;
-        pixel.v = pixel.v * 255.0f + 0.5 + 128.0f;
+        pixel.u = pixel.u * 255.0f + 0.5f + 128.0f;
+        pixel.v = pixel.v * 255.0f + 0.5f + 128.0f;
 
         pixel.u = CLIP3(pixel.u, 0.0f, 255.0f);
         pixel.v = CLIP3(pixel.v, 0.0f, 255.0f);
@@ -1538,7 +1538,7 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
   dst->range = src->range;
   if (dst->fmt == src->fmt) {
     if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-      int bpp = 2;
+      size_t bpp = 2;
       uint8_t* y_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
       uint8_t* y_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
       uint8_t* uv_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_UV]);
@@ -1586,7 +1586,7 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
                src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_24bppRGB888) {
       uint8_t* plane_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_PACKED]);
       uint8_t* plane_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_PACKED]);
-      int bpp = 1;
+      size_t bpp = 1;
 
       if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888)
         bpp = 4;
@@ -1614,7 +1614,7 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
           pixel_dst += 1;
         }
         plane_dst += dst->stride[UHDR_PLANE_PACKED];
-        plane_src += 3 * src->stride[UHDR_PLANE_PACKED];
+        plane_src += (size_t)3 * src->stride[UHDR_PLANE_PACKED];
       }
       return g_no_error;
     }
