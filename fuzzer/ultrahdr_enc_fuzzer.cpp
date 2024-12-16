@@ -77,8 +77,9 @@ void UltraHdrEncFuzzer::process() {
     int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
 
     // hdr_img_fmt
-    auto hdr_img_fmt =
-        mFdp.ConsumeBool() ? UHDR_IMG_FMT_24bppYCbCrP010 : UHDR_IMG_FMT_32bppRGBA1010102;
+    uhdr_img_fmt_t hdr_img_fmt =
+        mFdp.PickValueInArray({UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_32bppRGBA1010102,
+                               UHDR_IMG_FMT_64bppRGBAHalfFloat});
 
     // sdr_img_fmt
     uhdr_img_fmt_t sdr_img_fmt =
@@ -142,19 +143,19 @@ void UltraHdrEncFuzzer::process() {
 
     // raw buffer config
     bool hasHdrStride = mFdp.ConsumeBool();
-    int yHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t yHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasHdrStride) yHdrStride = width;
     bool isHdrUVContiguous = mFdp.ConsumeBool();
     bool hasHdrUVStride = mFdp.ConsumeBool();
-    int uvHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t uvHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasHdrUVStride) uvHdrStride = width;
 
     bool hasSdrStride = mFdp.ConsumeBool();
-    int ySdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t ySdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasSdrStride) ySdrStride = width;
     bool isSdrUVContiguous = mFdp.ConsumeBool();
     bool hasSdrUVStride = mFdp.ConsumeBool();
-    int uvSdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
+    size_t uvSdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
     if (!hasSdrUVStride) uvSdrStride = width / 2;
 
     // editing effects
@@ -172,8 +173,8 @@ void UltraHdrEncFuzzer::process() {
     int bottom = mFdp.ConsumeIntegral<int16_t>();
 
     auto applyResize = mFdp.ConsumeBool();
-    int resizeWidth = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxWidth + 128);
-    int resizeHeight = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxHeight + 128);
+    int resizeWidth = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxWidth + 128);
+    int resizeHeight = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxHeight + 128);
 
     // exif
     char greeting[] = "Exif says hello world";
@@ -206,6 +207,7 @@ void UltraHdrEncFuzzer::process() {
     if (applyResize)
       ALOGV("added resize effect, resize wd %d, resize ht %d", resizeWidth, resizeHeight);
 
+    std::unique_ptr<uint64_t[]> bufferFpHdr = nullptr;
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferUVHdr = nullptr;
@@ -262,6 +264,13 @@ void UltraHdrEncFuzzer::process() {
         bufferHdr = std::make_unique<uint32_t[]>(rgba1010102Size);
         hdrImg.planes[UHDR_PLANE_PACKED] = bufferHdr.get();
         fillBuffer<uint32_t>(bufferHdr.get(), width, height, yHdrStride);
+        hdrImg.planes[UHDR_PLANE_U] = nullptr;
+        hdrImg.stride[UHDR_PLANE_U] = 0;
+      } else if (hdr_img_fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+        size_t rgbafp16Size = yHdrStride * height;
+        bufferFpHdr = std::make_unique<uint64_t[]>(rgbafp16Size);
+        hdrImg.planes[UHDR_PLANE_PACKED] = bufferFpHdr.get();
+        fillBuffer<uint64_t>(bufferFpHdr.get(), width, height, yHdrStride);
         hdrImg.planes[UHDR_PLANE_U] = nullptr;
         hdrImg.stride[UHDR_PLANE_U] = 0;
       }
