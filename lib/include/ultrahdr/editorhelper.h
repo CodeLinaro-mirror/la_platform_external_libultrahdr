@@ -65,8 +65,7 @@ typedef struct uhdr_rotate_effect : uhdr_effect_desc {
 
 /*!\brief crop effect descriptor */
 typedef struct uhdr_crop_effect : uhdr_effect_desc {
-  uhdr_crop_effect(int left, int right, int top, int bottom)
-      : m_left{left}, m_right{right}, m_top{top}, m_bottom{bottom} {}
+  uhdr_crop_effect(int left, int right, int top, int bottom);
 
   std::string to_string() {
     return "effect : crop, metadata : left, right, top, bottom - " + std::to_string(m_left) + " ," +
@@ -77,6 +76,11 @@ typedef struct uhdr_crop_effect : uhdr_effect_desc {
   int m_right;
   int m_top;
   int m_bottom;
+
+  void (*m_crop_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, int, int);
+  void (*m_crop_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, int, int);
+  void (*m_crop_uint32_t)(uint32_t*, uint32_t*, int, int, int, int, int, int);
+  void (*m_crop_uint64_t)(uint64_t*, uint64_t*, int, int, int, int, int, int);
 } uhdr_crop_effect_t; /**< alias for struct uhdr_crop_effect */
 
 /*!\brief resize effect descriptor */
@@ -109,6 +113,8 @@ template <typename T>
 extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
                           int src_stride, int dst_stride);
 
+std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int dst_w, int dst_h);
+
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 template <typename T>
 extern void mirror_buffer_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_stride,
@@ -135,8 +141,9 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate_gles(ultrahdr::uhdr_rotate_ef
                                                         uhdr_opengl_ctxt* gl_ctxt,
                                                         GLuint* srcTexture);
 
-void apply_crop_gles(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
-                     uhdr_opengl_ctxt* gl_ctxt, GLuint* srcTexture);
+std::unique_ptr<uhdr_raw_image_ext_t> apply_crop_gles(uhdr_raw_image_t* src, int left, int top,
+                                                      int wd, int ht, uhdr_opengl_ctxt* gl_ctxt,
+                                                      GLuint* srcTexture);
 #endif
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_t* desc,
@@ -152,8 +159,10 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
                                                    void* gl_ctxt = nullptr,
                                                    void* texture = nullptr);
 
-void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht, void* gl_ctxt = nullptr,
-                void* texture = nullptr);
+std::unique_ptr<uhdr_raw_image_ext_t> apply_crop(ultrahdr::uhdr_crop_effect_t* desc,
+                                                 uhdr_raw_image_t* src, int left, int top, int wd,
+                                                 int ht, void* gl_ctxt = nullptr,
+                                                 void* texture = nullptr);
 
 }  // namespace ultrahdr
 
