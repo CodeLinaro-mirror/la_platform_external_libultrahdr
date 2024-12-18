@@ -19,6 +19,7 @@
 #include <cmath>
 
 #include "ultrahdr/editorhelper.h"
+#include "ultrahdr/gainmapmath.h"
 
 namespace ultrahdr {
 
@@ -69,6 +70,15 @@ void mirror_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_s
   }
 }
 
+template <typename T>
+void crop_buffer(T* src_buffer, T* dst_buffer, int src_stride, int dst_stride, int left, int top,
+                 int wd, int ht) {
+  for (int row = 0; row < ht; row++) {
+    memcpy(&dst_buffer[row * dst_stride], &src_buffer[(top + row) * src_stride + left],
+           wd * sizeof(T));
+  }
+}
+
 // TODO (dichenzhang): legacy method, need to be removed
 template <typename T>
 void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
@@ -93,42 +103,52 @@ double bicubic_interpolate(double p0, double p1, double p2, double p3, double x)
   return w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3;
 }
 
-template <typename T>
-void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
-                   int src_stride, int dst_stride, uhdr_img_fmt_t img_fmt, size_t plane) {
+std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int dst_w, int dst_h) {
+  GetPixelFn get_pixel_fn = getPixelFn(src->fmt);
+  if (get_pixel_fn == nullptr) {
+    return nullptr;
+  }
+
+  PutPixelFn put_pixel_fn = putPixelFn(src->fmt);
+  if (put_pixel_fn == nullptr) {
+    return nullptr;
+  }
+
+  std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
+      src->fmt, src->cg, src->ct, src->range, dst_w, dst_h, 64);
+
+  int src_w = src->w;
+  int src_h = src->h;
   double scale_x = (double)src_w / dst_w;
   double scale_y = (double)src_h / dst_h;
   for (int y = 0; y < dst_h; y++) {
     for (int x = 0; x < dst_w; x++) {
       double ori_x = x * scale_x;
       double ori_y = y * scale_y;
-      int p0_x = (int)floor(ori_x);
-      int p0_y = (int)floor(ori_y);
-      int p1_x = p0_x + 1;
+      int p0_x = CLIP3((int)floor(ori_x), 0, src_w - 1);
+      int p0_y = CLIP3((int)floor(ori_y), 0, src_h - 1);
+      int p1_x = CLIP3((p0_x + 1), 0, src_w - 1);
       int p1_y = p0_y;
       int p2_x = p0_x;
-      int p2_y = p0_y + 1;
-      int p3_x = p0_x + 1;
-      int p3_y = p0_y + 1;
+      int p2_y = CLIP3((p0_y + 1), 0, src_h - 1);
+      int p3_x = CLIP3((p0_x + 1), 0, src_w - 1);
+      int p3_y = CLIP3((p0_y + 1), 0, src_h - 1);
 
-      if ((img_fmt == UHDR_IMG_FMT_8bppYCbCr400) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_Y) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_U) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_V)) {
-        double p0 = (double)src_buffer[p0_y * src_stride + p0_x];
-        double p1 = (double)src_buffer[p1_y * src_stride + p1_x];
-        double p2 = (double)src_buffer[p2_y * src_stride + p2_x];
-        double p3 = (double)src_buffer[p3_y * src_stride + p3_x];
+      Color p0 = get_pixel_fn(src, p0_x, p0_y);
+      Color p1 = get_pixel_fn(src, p1_x, p1_y);
+      Color p2 = get_pixel_fn(src, p2_x, p2_y);
+      Color p3 = get_pixel_fn(src, p3_x, p3_y);
 
-        double new_pix_val = bicubic_interpolate(p0, p1, p2, p3, ori_x - p0_x);
-
-        dst_buffer[y * dst_stride + x] = (uint8_t)floor(new_pix_val + 0.5);
-      } else {
-        // Unsupported feature.
-        return;
+      Color interp;
+      interp.r = (float)bicubic_interpolate(p0.r, p1.r, p2.r, p3.r, ori_x - p0_x);
+      if (src->fmt != UHDR_IMG_FMT_8bppYCbCr400) {
+        interp.g = (float)bicubic_interpolate(p0.g, p1.g, p2.g, p3.g, ori_x - p0_x);
+        interp.b = (float)bicubic_interpolate(p0.b, p1.b, p2.b, p3.b, ori_x - p0_x);
       }
+      put_pixel_fn(dst.get(), x, y, interp);
     }
   }
+  return dst;
 }
 
 template void mirror_buffer<uint8_t>(uint8_t*, uint8_t*, int, int, int, int,
@@ -178,6 +198,14 @@ uhdr_rotate_effect::uhdr_rotate_effect(int degree) : m_degree{degree} {
 #endif
 }
 
+uhdr_crop_effect::uhdr_crop_effect(int left, int right, int top, int bottom)
+    : m_left(left), m_right(right), m_top(top), m_bottom(bottom) {
+  m_crop_uint8_t = crop_buffer<uint8_t>;
+  m_crop_uint16_t = crop_buffer<uint16_t>;
+  m_crop_uint32_t = crop_buffer<uint32_t>;
+  m_crop_uint64_t = crop_buffer<uint64_t>;
+}
+
 uhdr_resize_effect::uhdr_resize_effect(int width, int height) : m_width{width}, m_height{height} {
   m_resize_uint8_t = resize_buffer<uint8_t>;
   m_resize_uint16_t = resize_buffer<uint16_t>;
@@ -192,7 +220,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
     return apply_rotate_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
@@ -267,7 +295,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
     return apply_mirror_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
@@ -326,51 +354,70 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
   return dst;
 }
 
-void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
-                [[maybe_unused]] void* gl_ctxt, [[maybe_unused]] void* texture) {
+std::unique_ptr<uhdr_raw_image_ext_t> apply_crop(ultrahdr::uhdr_crop_effect_t* desc,
+                                                 uhdr_raw_image_t* src, int left, int top, int wd,
+                                                 int ht, [[maybe_unused]] void* gl_ctxt,
+                                                 [[maybe_unused]] void* texture) {
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
     return apply_crop_gles(src, left, top, wd, ht,
                            static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                            static_cast<GLuint*>(texture));
   }
 #endif
+  std::unique_ptr<uhdr_raw_image_ext_t> dst =
+      std::make_unique<uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range, wd, ht, 64);
+
   if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[UHDR_PLANE_Y]);
-    src->planes[UHDR_PLANE_Y] = &src_buffer[top * src->stride[UHDR_PLANE_Y] + left];
+    uint16_t* dst_buffer = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_Y]);
+    desc->m_crop_uint16_t(src_buffer, dst_buffer, src->stride[UHDR_PLANE_Y],
+                          dst->stride[UHDR_PLANE_Y], left, top, wd, ht);
     uint32_t* src_uv_buffer = static_cast<uint32_t*>(src->planes[UHDR_PLANE_UV]);
-    src->planes[UHDR_PLANE_UV] =
-        &src_uv_buffer[(top / 2) * (src->stride[UHDR_PLANE_UV] / 2) + (left / 2)];
+    uint32_t* dst_uv_buffer = static_cast<uint32_t*>(dst->planes[UHDR_PLANE_UV]);
+    desc->m_crop_uint32_t(src_uv_buffer, dst_uv_buffer, src->stride[UHDR_PLANE_UV] / 2,
+                          dst->stride[UHDR_PLANE_UV] / 2, left / 2, top / 2, wd / 2, ht / 2);
   } else if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420 || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) {
     uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
-    src->planes[UHDR_PLANE_Y] = &src_buffer[top * src->stride[UHDR_PLANE_Y] + left];
+    uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+    desc->m_crop_uint8_t(src_buffer, dst_buffer, src->stride[UHDR_PLANE_Y],
+                         dst->stride[UHDR_PLANE_Y], left, top, wd, ht);
     if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       for (int i = 1; i < 3; i++) {
         src_buffer = static_cast<uint8_t*>(src->planes[i]);
-        src->planes[i] = &src_buffer[(top / 2) * src->stride[i] + (left / 2)];
+        dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
+        desc->m_crop_uint8_t(src_buffer, dst_buffer, src->stride[i], dst->stride[i], left / 2,
+                             top / 2, wd / 2, ht / 2);
       }
     }
   } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
     uint32_t* src_buffer = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
-    src->planes[UHDR_PLANE_PACKED] = &src_buffer[top * src->stride[UHDR_PLANE_PACKED] + left];
+    uint32_t* dst_buffer = static_cast<uint32_t*>(dst->planes[UHDR_PLANE_PACKED]);
+    desc->m_crop_uint32_t(src_buffer, dst_buffer, src->stride[UHDR_PLANE_PACKED],
+                          dst->stride[UHDR_PLANE_PACKED], left, top, wd, ht);
   } else if (src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     uint64_t* src_buffer = static_cast<uint64_t*>(src->planes[UHDR_PLANE_PACKED]);
-    src->planes[UHDR_PLANE_PACKED] = &src_buffer[top * src->stride[UHDR_PLANE_PACKED] + left];
+    uint64_t* dst_buffer = static_cast<uint64_t*>(dst->planes[UHDR_PLANE_PACKED]);
+    desc->m_crop_uint64_t(src_buffer, dst_buffer, src->stride[UHDR_PLANE_PACKED],
+                          dst->stride[UHDR_PLANE_PACKED], left, top, wd, ht);
   } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
     for (int i = 0; i < 3; i++) {
       uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[i]);
-      src->planes[i] = &src_buffer[top * src->stride[i] + left];
+      uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
+      desc->m_crop_uint8_t(src_buffer, dst_buffer, src->stride[i], dst->stride[i], left, top, wd,
+                           ht);
     }
   } else if (src->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
     for (int i = 0; i < 3; i++) {
       uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[i]);
-      src->planes[i] = &src_buffer[top * src->stride[i] + left];
+      uint16_t* dst_buffer = static_cast<uint16_t*>(dst->planes[i]);
+      desc->m_crop_uint16_t(src_buffer, dst_buffer, src->stride[UHDR_PLANE_PACKED],
+                            dst->stride[UHDR_PLANE_PACKED], left, top, wd, ht);
     }
   }
-  src->w = wd;
-  src->h = ht;
+  return dst;
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
@@ -380,7 +427,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
     return apply_resize_gles(src, dst_w, dst_h, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
