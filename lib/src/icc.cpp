@@ -273,8 +273,7 @@ float IccHelper::compute_tone_map_gain(const uhdr_color_transfer_t tf, float L) 
 
 std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
                                                       uint32_t transfer_characteristics) {
-  int total_length = 12;  // 4 + 4 + 1 + 1 + 1 + 1
-  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
   dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
   dataStruct->write32(0);                           // Reserved
   dataStruct->write8(color_primaries);              // Color primaries
@@ -416,7 +415,6 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
 
   // Compute profile description tag
   std::string desc = get_desc_string(tf, gamut);
-
   tags.emplace_back(kTAG_desc, write_text_tag(desc.c_str()));
 
   Matrix3x3 toXYZD50;
@@ -466,26 +464,32 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
                         write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
       tags.emplace_back(kTAG_bTRC,
                         write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-    } else {
+    } else if (tf == UHDR_CT_SRGB) {
       tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
       tags.emplace_back(kTAG_gTRC, write_trc_tag(kSRGB_TransFun));
       tags.emplace_back(kTAG_bTRC, write_trc_tag(kSRGB_TransFun));
+    } else if (tf == UHDR_CT_LINEAR) {
+      tags.emplace_back(kTAG_rTRC, write_trc_tag(kLinear_TransFun));
+      tags.emplace_back(kTAG_gTRC, write_trc_tag(kLinear_TransFun));
+      tags.emplace_back(kTAG_bTRC, write_trc_tag(kLinear_TransFun));
     }
   }
 
-  // Compute CICP.
-  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ) {
+  // Compute CICP - for hdr images icc profile shall contain cicp.
+  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ || tf == UHDR_CT_LINEAR) {
     // The CICP tag is present in ICC 4.4, so update the header's version.
     header.version = Endian_SwapBE32(0x04400000);
 
-    uint32_t color_primaries = 0;
+    uint32_t color_primaries = kCICPPrimariesUnSpecified;
     if (gamut == UHDR_CG_BT_709) {
       color_primaries = kCICPPrimariesSRGB;
     } else if (gamut == UHDR_CG_DISPLAY_P3) {
       color_primaries = kCICPPrimariesP3;
+    } else if (gamut == UHDR_CG_BT_2100) {
+      color_primaries = kCICPPrimariesRec2020;
     }
 
-    uint32_t transfer_characteristics = 0;
+    uint32_t transfer_characteristics = kCICPTrfnUnSpecified;
     if (tf == UHDR_CT_SRGB) {
       transfer_characteristics = kCICPTrfnSRGB;
     } else if (tf == UHDR_CT_LINEAR) {
@@ -602,7 +606,7 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
 
 bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
                                   const uint8_t* green_tag, const uint8_t* blue_tag) {
-  const float tolerance = 0.001;
+  const float tolerance = 0.001f;
   Fixed r_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[2]);
   Fixed r_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[3]);
   Fixed r_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[4]);
@@ -670,6 +674,7 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   // of ICC data and therefore a tag offset of zero would never be valid.
   size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
   size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
+  size_t cicp_size = 0, cicp_offset = 0;
   for (size_t tag_idx = 0; tag_idx < Endian_SwapBE32(header->tag_count); ++tag_idx) {
     if (icc_size < kICCIdentifierSize + sizeof(ICCHeader) + ((tag_idx + 1) * kTagTableEntrySize)) {
       ALOGE(
@@ -692,6 +697,27 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
     } else if (blue_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_bXYZ)) {
       blue_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
       blue_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
+    } else if (cicp_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_cicp)) {
+      cicp_offset = Endian_SwapBE32(*(tag_entry_start + 1));
+      cicp_size = Endian_SwapBE32(*(tag_entry_start + 2));
+    }
+  }
+
+  if (cicp_offset != 0 && cicp_size == kCicpTagSize &&
+      kICCIdentifierSize + cicp_offset + cicp_size <= icc_size) {
+    uint8_t* cicp = icc_bytes + cicp_offset;
+    uint8_t primaries = cicp[8];
+    uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
+    if (primaries == kCICPPrimariesSRGB) {
+      gamut = UHDR_CG_BT_709;
+    } else if (primaries == kCICPPrimariesP3) {
+      gamut = UHDR_CG_DISPLAY_P3;
+    } else if (primaries == kCICPPrimariesRec2020) {
+      gamut = UHDR_CG_BT_2100;
+    }
+    if (gamut != UHDR_CG_UNSPECIFIED) {
+      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
+      return gamut;
     }
   }
 
