@@ -540,9 +540,9 @@ TEST_F(GainMapMathTest, ColorDivideFloat) {
 TEST_F(GainMapMathTest, SrgbLuminance) {
   EXPECT_FLOAT_EQ(srgbLuminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(srgbLuminance(RgbWhite()), 1.0f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbRed()), 0.2126f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbGreen()), 0.7152f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbBlue()), 0.0722f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbRed()), 0.212639f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbGreen()), 0.715169f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbBlue()), 0.072192f);
 }
 
 TEST_F(GainMapMathTest, SrgbYuvToRgb) {
@@ -607,9 +607,9 @@ TEST_F(GainMapMathTest, SrgbTransferFunction) {
 TEST_F(GainMapMathTest, P3Luminance) {
   EXPECT_FLOAT_EQ(p3Luminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(p3Luminance(RgbWhite()), 1.0f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbRed()), 0.20949f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbGreen()), 0.72160f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbBlue()), 0.06891f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbRed()), 0.2289746f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbGreen()), 0.6917385f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbBlue()), 0.0792869f);
 }
 
 TEST_F(GainMapMathTest, P3YuvToRgb) {
@@ -666,8 +666,8 @@ TEST_F(GainMapMathTest, Bt2100Luminance) {
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbWhite()), 1.0f);
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbRed()), 0.2627f);
-  EXPECT_FLOAT_EQ(bt2100Luminance(RgbGreen()), 0.6780f);
-  EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlue()), 0.0593f);
+  EXPECT_FLOAT_EQ(bt2100Luminance(RgbGreen()), 0.677998f);
+  EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlue()), 0.059302f);
 }
 
 TEST_F(GainMapMathTest, Bt2100YuvToRgb) {
@@ -1127,13 +1127,16 @@ TEST_F(GainMapMathTest, srgbInvOetfLUT) {
 
 TEST_F(GainMapMathTest, applyGainLUT) {
   for (float boost = 1.5; boost <= 12; boost++) {
-    uhdr_gainmap_metadata_ext_t metadata;
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
 
-    metadata.min_content_boost = 1.0f / boost;
-    metadata.max_content_boost = boost;
-    metadata.gamma = 1.0f;
-    metadata.hdr_capacity_max = metadata.max_content_boost;
-    metadata.hdr_capacity_min = metadata.min_content_boost;
+    std::fill_n(metadata.min_content_boost, 3, 1.0f / boost);
+    std::fill_n(metadata.max_content_boost, 3, boost);
+    std::fill_n(metadata.gamma, 3, 1.0f);
+    std::fill_n(metadata.offset_sdr, 3, 0.0f);
+    std::fill_n(metadata.offset_hdr, 3, 0.0f);
+    metadata.hdr_capacity_max = metadata.max_content_boost[0];
+    metadata.hdr_capacity_min = metadata.min_content_boost[0];
+    metadata.use_base_cg = true;
     GainLUT gainLUT(&metadata);
     float weight = (log2(boost) - log2(metadata.hdr_capacity_min)) /
                    (log2(metadata.hdr_capacity_max) - log2(metadata.hdr_capacity_min));
@@ -1165,13 +1168,16 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (float boost = 1.5; boost <= 12; boost++) {
-    uhdr_gainmap_metadata_ext_t metadata;
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
 
-    metadata.min_content_boost = 1.0f;
-    metadata.max_content_boost = boost;
-    metadata.gamma = 1.0f;
-    metadata.hdr_capacity_max = metadata.max_content_boost;
-    metadata.hdr_capacity_min = metadata.min_content_boost;
+    std::fill_n(metadata.min_content_boost, 3, 1.0f / boost);
+    std::fill_n(metadata.max_content_boost, 3, boost);
+    std::fill_n(metadata.gamma, 3, 1.0f);
+    std::fill_n(metadata.offset_sdr, 3, 0.0f);
+    std::fill_n(metadata.offset_hdr, 3, 0.0f);
+    metadata.hdr_capacity_max = metadata.max_content_boost[0];
+    metadata.hdr_capacity_min = metadata.min_content_boost[0];
+    metadata.use_base_cg = true;
     GainLUT gainLUT(&metadata);
     float weight = (log2(boost) - log2(metadata.hdr_capacity_min)) /
                    (log2(metadata.hdr_capacity_max) - log2(metadata.hdr_capacity_min));
@@ -1203,13 +1209,16 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (float boost = 1.5; boost <= 12; boost++) {
-    uhdr_gainmap_metadata_ext_t metadata;
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
 
-    metadata.min_content_boost = 1.0f / powf(boost, 1.0f / 3.0f);
-    metadata.max_content_boost = boost;
-    metadata.gamma = 1.0f;
-    metadata.hdr_capacity_max = metadata.max_content_boost;
-    metadata.hdr_capacity_min = metadata.min_content_boost;
+    std::fill_n(metadata.min_content_boost, 3, 1.0f / powf(boost, 1.0f / 3.0f));
+    std::fill_n(metadata.max_content_boost, 3, boost);
+    std::fill_n(metadata.gamma, 3, 1.0f);
+    std::fill_n(metadata.offset_sdr, 3, 0.0f);
+    std::fill_n(metadata.offset_hdr, 3, 0.0f);
+    metadata.hdr_capacity_max = metadata.max_content_boost[0];
+    metadata.hdr_capacity_min = metadata.min_content_boost[0];
+    metadata.use_base_cg = true;
     GainLUT gainLUT(&metadata);
     float weight = (log2(boost) - log2(metadata.hdr_capacity_min)) /
                    (log2(metadata.hdr_capacity_max) - log2(metadata.hdr_capacity_min));
@@ -1276,7 +1285,7 @@ TEST_F(GainMapMathTest, EncodeGain) {
   float max_boost = log2(4.0f);
   float gamma = 1.0f;
 
-  EXPECT_EQ(affineMapGain(computeGain(0.0f, 1.0f), min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(computeGain(0.0f, 1.0f), min_boost, max_boost, 1.0f), 255);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
   EXPECT_EQ(affineMapGain(computeGain(0.5f, 0.0f), min_boost, max_boost, 1.0f), 0);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0), min_boost, max_boost, 1.0f), 128);
@@ -1322,21 +1331,22 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0f), min_boost, max_boost, 1.0f), 64);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f), min_boost, max_boost, 1.0f), 255);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 191);
-  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 127);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.7071f), min_boost, max_boost, 1.0f), 32);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.5f), min_boost, max_boost, 1.0f), 0);
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
-  uhdr_gainmap_metadata_ext_t metadata;
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
 
-  metadata.min_content_boost = 1.0f / 4.0f;
-  metadata.max_content_boost = 4.0f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
-  metadata.offset_sdr = 0.0f;
-  metadata.offset_hdr = 0.0f;
-  metadata.gamma = 1.0f;
+  std::fill_n(metadata.min_content_boost, 3, 1.0f / 4.0f);
+  std::fill_n(metadata.max_content_boost, 3, 4.0f);
+  std::fill_n(metadata.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata.offset_hdr, 3, 0.0f);
+  std::fill_n(metadata.gamma, 3, 1.0f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
+  metadata.use_base_cg = true;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.5f, &metadata), RgbBlack());
@@ -1348,10 +1358,10 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 4.0f);
 
-  metadata.max_content_boost = 2.0f;
-  metadata.min_content_boost = 1.0f / 2.0f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
+  std::fill_n(metadata.max_content_boost, 3, 2.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f / 2.0f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 1.41421f);
@@ -1359,10 +1369,10 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 1.41421f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 2.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f / 8.0f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
+  std::fill_n(metadata.max_content_boost, 3, 8.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f / 8.0f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 8.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 2.82843f);
@@ -1370,20 +1380,20 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.82843f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
+  std::fill_n(metadata.max_content_boost, 3, 8.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite());
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 0.5f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
+  std::fill_n(metadata.max_content_boost, 3, 8.0f);
+  std::fill_n(metadata.min_content_boost, 3, 0.5f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite());
@@ -1392,10 +1402,10 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
   Color e = {{{0.0f, 0.5f, 1.0f}}};
-  metadata.max_content_boost = 4.0f;
-  metadata.min_content_boost = 1.0f / 4.0f;
-  metadata.hdr_capacity_max = metadata.max_content_boost;
-  metadata.hdr_capacity_min = metadata.min_content_boost;
+  std::fill_n(metadata.max_content_boost, 3, 4.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f / 4.0f);
+  metadata.hdr_capacity_max = metadata.max_content_boost[0];
+  metadata.hdr_capacity_min = metadata.min_content_boost[0];
 
   EXPECT_RGB_NEAR(applyGain(e, 0.0f, &metadata), e / 4.0f);
   EXPECT_RGB_NEAR(applyGain(e, 0.25f, &metadata), e / 2.0f);
@@ -1623,13 +1633,13 @@ TEST_F(GainMapMathTest, GenerateMapLuminancePq) {
 }
 
 TEST_F(GainMapMathTest, ApplyMap) {
-  uhdr_gainmap_metadata_ext_t metadata;
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
 
-  metadata.min_content_boost = 1.0f / 8.0f;
-  metadata.max_content_boost = 8.0f;
-  metadata.offset_sdr = 0.0f;
-  metadata.offset_hdr = 0.0f;
-  metadata.gamma = 1.0f;
+  std::fill_n(metadata.min_content_boost, 3, 1.0f / 8.0f);
+  std::fill_n(metadata.max_content_boost, 3, 8.0f);
+  std::fill_n(metadata.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata.offset_hdr, 3, 0.0f);
+  std::fill_n(metadata.gamma, 3, 1.0f);
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvBlack(), 1.0f, &metadata), RgbBlack());
@@ -1661,16 +1671,16 @@ TEST_F(GainMapMathTest, ApplyMap) {
   EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.0f, &metadata), RgbGreen() / 8.0f);
   EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.0f, &metadata), RgbBlue() / 8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f;
+  metadata.max_content_boost[0] = 8.0f;
+  metadata.min_content_boost[0] = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite());
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 0.5f;
+  metadata.max_content_boost[0] = 8.0f;
+  metadata.min_content_boost[0] = 0.5f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75, &metadata), RgbWhite() * 4.0f);

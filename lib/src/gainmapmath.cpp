@@ -89,7 +89,7 @@ void ShepardsIDW::fillShepardsIDW(float* weights, int incR, int incB) {
 // sRGB transformations
 
 // See IEC 61966-2-1/Amd 1:2003, Equation F.7.
-static const float kSrgbR = 0.2126f, kSrgbG = 0.7152f, kSrgbB = 0.0722f;
+static const float kSrgbR = 0.212639f, kSrgbG = 0.715169f, kSrgbB = 0.072192f;
 
 float srgbLuminance(Color e) { return kSrgbR * e.r + kSrgbG * e.g + kSrgbB * e.b; }
 
@@ -97,7 +97,7 @@ float srgbLuminance(Color e) { return kSrgbR * e.r + kSrgbG * e.g + kSrgbB * e.b
 // Uses the same coefficients for deriving luma signal as
 // IEC 61966-2-1/Amd 1:2003 states for luminance, so we reuse the luminance
 // function above.
-static const float kSrgbCb = 1.8556f, kSrgbCr = 1.5748f;
+static const float kSrgbCb = (2 * (1 - kSrgbB)), kSrgbCr = (2 * (1 - kSrgbR));
 
 Color srgbRgbToYuv(Color e_gamma) {
   float y_gamma = srgbLuminance(e_gamma);
@@ -121,7 +121,7 @@ float srgbInvOetf(float e_gamma) {
   if (e_gamma <= 0.04045f) {
     return e_gamma / 12.92f;
   } else {
-    return pow((e_gamma + 0.055f) / 1.055f, 2.4);
+    return pow((e_gamma + 0.055f) / 1.055f, 2.4f);
   }
 }
 
@@ -129,7 +129,6 @@ Color srgbInvOetf(Color e_gamma) {
   return {{{srgbInvOetf(e_gamma.r), srgbInvOetf(e_gamma.g), srgbInvOetf(e_gamma.b)}}};
 }
 
-// See IEC 61966-2-1, Equations F.5 and F.6.
 float srgbInvOetfLUT(float e_gamma) {
   int32_t value = static_cast<int32_t>(e_gamma * (kSrgbInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
@@ -142,15 +141,16 @@ Color srgbInvOetfLUT(Color e_gamma) {
   return {{{srgbInvOetfLUT(e_gamma.r), srgbInvOetfLUT(e_gamma.g), srgbInvOetfLUT(e_gamma.b)}}};
 }
 
+// See IEC 61966-2-1/Amd 1:2003, Equations F.10 and F.11.
 float srgbOetf(float e) {
-  constexpr float kThreshold = 0.0031308;
-  constexpr float kLowSlope = 12.92;
-  constexpr float kHighOffset = 0.055;
-  constexpr float kPowerExponent = 1.0 / 2.4;
+  constexpr float kThreshold = 0.0031308f;
+  constexpr float kLowSlope = 12.92f;
+  constexpr float kHighOffset = 0.055f;
+  constexpr float kPowerExponent = 1.0f / 2.4f;
   if (e <= kThreshold) {
     return kLowSlope * e;
   }
-  return (1.0 + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
+  return (1.0f + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
 }
 
 Color srgbOetf(Color e) { return {{{srgbOetf(e.r), srgbOetf(e.g), srgbOetf(e.b)}}}; }
@@ -158,8 +158,8 @@ Color srgbOetf(Color e) { return {{{srgbOetf(e.r), srgbOetf(e.g), srgbOetf(e.b)}
 ////////////////////////////////////////////////////////////////////////////////
 // Display-P3 transformations
 
-// See SMPTE EG 432-1, Equation 7-8.
-static const float kP3R = 0.20949f, kP3G = 0.72160f, kP3B = 0.06891f;
+// See SMPTE EG 432-1, Equation G-7.
+static const float kP3R = 0.2289746f, kP3G = 0.6917385f, kP3B = 0.0792869f;
 
 float p3Luminance(Color e) { return kP3R * e.r + kP3G * e.g + kP3B * e.b; }
 
@@ -190,14 +190,14 @@ Color p3YuvToRgb(Color e_gamma) {
 // BT.2100 transformations - according to ITU-R BT.2100-2
 
 // See ITU-R BT.2100-2, Table 5, HLG Reference OOTF
-static const float kBt2100R = 0.2627f, kBt2100G = 0.6780f, kBt2100B = 0.0593f;
+static const float kBt2100R = 0.2627f, kBt2100G = 0.677998f, kBt2100B = 0.059302f;
 
 float bt2100Luminance(Color e) { return kBt2100R * e.r + kBt2100G * e.g + kBt2100B * e.b; }
 
 // See ITU-R BT.2100-2, Table 6, Derivation of colour difference signals.
 // BT.2100 uses the same coefficients for calculating luma signal and luminance,
 // so we reuse the luminance function here.
-static const float kBt2100Cb = 1.8814f, kBt2100Cr = 1.4746f;
+static const float kBt2100Cb = (2 * (1 - kBt2100B)), kBt2100Cr = (2 * (1 - kBt2100R));
 
 Color bt2100RgbToYuv(Color e_gamma) {
   float y_gamma = bt2100Luminance(e_gamma);
@@ -239,7 +239,7 @@ Color bt2100YuvToRgb(Color e_gamma) {
 }
 
 // See ITU-R BT.2100-2, Table 5, HLG Reference OETF.
-static const float kHlgA = 0.17883277f, kHlgB = 0.28466892f, kHlgC = 0.55991073;
+static const float kHlgA = 0.17883277f, kHlgB = 0.28466892f, kHlgC = 0.55991073f;
 
 float hlgOetf(float e) {
   if (e <= 1.0f / 12.0f) {
@@ -286,9 +286,11 @@ Color hlgInvOetfLUT(Color e_gamma) {
   return {{{hlgInvOetfLUT(e_gamma.r), hlgInvOetfLUT(e_gamma.g), hlgInvOetfLUT(e_gamma.b)}}};
 }
 
-// 1.2f + 0.42 * log(kHlgMaxNits / 1000)
+// See ITU-R BT.2100-2, Table 5, Note 5f
+// Gamma = 1.2 + 0.42 * log(kHlgMaxNits / 1000)
 static const float kOotfGamma = 1.2f;
 
+// See ITU-R BT.2100-2, Table 5, HLG Reference OOTF
 Color hlgOotf(Color e, LuminanceFn luminance) {
   float y = luminance(e);
   return e * std::pow(y, kOotfGamma - 1.0f);
@@ -298,6 +300,7 @@ Color hlgOotfApprox(Color e, [[maybe_unused]] LuminanceFn luminance) {
   return {{{std::pow(e.r, kOotfGamma), std::pow(e.g, kOotfGamma), std::pow(e.b, kOotfGamma)}}};
 }
 
+// See ITU-R BT.2100-2, Table 5, Note 5i
 Color hlgInverseOotf(Color e, LuminanceFn luminance) {
   float y = luminance(e);
   return e * std::pow(y, (1.0f / kOotfGamma) - 1.0f);
@@ -600,42 +603,34 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Color space conversions
+// Sample, See,
+// https://registry.khronos.org/DataFormat/specs/1.3/dataformat.1.3.html#_bt_709_bt_2020_primary_conversion_example
 
-Color bt709ToP3(Color e) {
-  return {{{0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
-            0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b,
-            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b}}};
-}
+const std::array<float, 9> kBt709ToP3 = {0.822462f,  0.177537f, 0.000001f, 0.033194f, 0.966807f,
+                                         -0.000001f, 0.017083f, 0.072398f, 0.91052f};
+const std::array<float, 9> kBt709ToBt2100 = {0.627404f, 0.329282f, 0.043314f, 0.069097f, 0.919541f,
+                                             0.011362f, 0.016392f, 0.088013f, 0.895595f};
+const std::array<float, 9> kP3ToBt709 = {1.22494f, -0.22494f,  0.0f,       -0.042057f, 1.042057f,
+                                         0.0f,     -0.019638f, -0.078636f, 1.098274f};
+const std::array<float, 9> kP3ToBt2100 = {0.753833f, 0.198597f, 0.04757f,  0.045744f, 0.941777f,
+                                          0.012479f, -0.00121f, 0.017601f, 0.983608f};
+const std::array<float, 9> kBt2100ToBt709 = {1.660491f,  -0.587641f, -0.07285f,
+                                             -0.124551f, 1.1329f,    -0.008349f,
+                                             -0.018151f, -0.100579f, 1.11873f};
+const std::array<float, 9> kBt2100ToP3 = {1.343578f, -0.282179f, -0.061399f, -0.065298f, 1.075788f,
+                                          -0.01049f, 0.002822f,  -0.019598f, 1.016777f};
 
-Color bt709ToBt2100(Color e) {
-  return {{{0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
-            0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b,
-            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b}}};
+Color ConvertGamut(Color e, const std::array<float, 9>& coeffs) {
+  return {{{coeffs[0] * e.r + coeffs[1] * e.g + coeffs[2] * e.b,
+            coeffs[3] * e.r + coeffs[4] * e.g + coeffs[5] * e.b,
+            coeffs[6] * e.r + coeffs[7] * e.g + coeffs[8] * e.b}}};
 }
-
-Color p3ToBt709(Color e) {
-  return {{{1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
-            -0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b,
-            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b}}};
-}
-
-Color p3ToBt2100(Color e) {
-  return {{{0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
-            0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b,
-            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b}}};
-}
-
-Color bt2100ToBt709(Color e) {
-  return {{{1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
-            -0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b,
-            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b}}};
-}
-
-Color bt2100ToP3(Color e) {
-  return {{{1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
-            -0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b,
-            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b}}};
-}
+Color bt709ToP3(Color e) { return ConvertGamut(e, kBt709ToP3); }
+Color bt709ToBt2100(Color e) { return ConvertGamut(e, kBt709ToBt2100); }
+Color p3ToBt709(Color e) { return ConvertGamut(e, kP3ToBt709); }
+Color p3ToBt2100(Color e) { return ConvertGamut(e, kP3ToBt2100); }
+Color bt2100ToBt709(Color e) { return ConvertGamut(e, kBt2100ToBt709); }
+Color bt2100ToP3(Color e) { return ConvertGamut(e, kBt2100ToP3); }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
 // the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in
@@ -761,33 +756,35 @@ void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
 
-uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata) {
-  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->min_content_boost),
-                    log2(metadata->max_content_boost));
+uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata, int index) {
+  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->min_content_boost[index]),
+                    log2(metadata->max_content_boost[index]), index);
 }
 
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
-                   float log2MinContentBoost, float log2MaxContentBoost) {
+                   float log2MinContentBoost, float log2MaxContentBoost, int index) {
   float gain = 1.0f;
   if (y_sdr > 0.0f) {
     gain = y_hdr / y_sdr;
   }
 
-  if (gain < metadata->min_content_boost) gain = metadata->min_content_boost;
-  if (gain > metadata->max_content_boost) gain = metadata->max_content_boost;
+  if (gain < metadata->min_content_boost[index]) gain = metadata->min_content_boost[index];
+  if (gain > metadata->max_content_boost[index]) gain = metadata->max_content_boost[index];
   float gain_normalized =
       (log2(gain) - log2MinContentBoost) / (log2MaxContentBoost - log2MinContentBoost);
-  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma);
+  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma[index]);
   return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
 }
 
 float computeGain(float sdr, float hdr) {
-  if (sdr == 0.0f) return 0.0f;  // for sdr black return no gain
-  if (hdr == 0.0f) {  // for hdr black, return a gain large enough to attenuate the sdr pel
-    float offset = (1.0f / 64);
-    return log2(offset / (offset + sdr));
+  float gain = log2((hdr + kHdrOffset) / (sdr + kSdrOffset));
+  if (sdr < 2.f / 255.0f) {
+    // If sdr is zero and hdr is non zero, it can result in very large gain values. In compression -
+    // decompression process, if the same sdr pixel increases to 1, the hdr recovered pixel will
+    // blow out. Dont allow dark pixels to signal large gains.
+    gain = (std::min)(gain, 2.3f);
   }
-  return log2(hdr / sdr);
+  return gain;
 }
 
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
@@ -798,73 +795,69 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
-  float logBoost =
-      log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
+  if (metadata->gamma[0] != 1.0f) gain = pow(gain, 1.0f / metadata->gamma[0]);
+  float logBoost = log2(metadata->min_content_boost[0]) * (1.0f - gain) +
+                   log2(metadata->max_content_boost[0]) * gain;
   float gainFactor = exp2(logBoost);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
-  float logBoost =
-      log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
+  if (metadata->gamma[0] != 1.0f) gain = pow(gain, 1.0f / metadata->gamma[0]);
+  float logBoost = log2(metadata->min_content_boost[0]) * (1.0f - gain) +
+                   log2(metadata->max_content_boost[0]) * gain;
   float gainFactor = exp2(logBoost * gainmapWeight);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata) {
-  float gainFactor = gainLUT.getGainFactor(gain);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  float gainFactor = gainLUT.getGainFactor(gain, 0);
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  if (metadata->gamma != 1.0f) {
-    gain.r = pow(gain.r, 1.0f / metadata->gamma);
-    gain.g = pow(gain.g, 1.0f / metadata->gamma);
-    gain.b = pow(gain.b, 1.0f / metadata->gamma);
-  }
-  float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
-                    log2(metadata->max_content_boost) * gain.r;
-  float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
-                    log2(metadata->max_content_boost) * gain.g;
-  float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
-                    log2(metadata->max_content_boost) * gain.b;
+  if (metadata->gamma[0] != 1.0f) gain.r = pow(gain.r, 1.0f / metadata->gamma[0]);
+  if (metadata->gamma[1] != 1.0f) gain.g = pow(gain.g, 1.0f / metadata->gamma[1]);
+  if (metadata->gamma[2] != 1.0f) gain.b = pow(gain.b, 1.0f / metadata->gamma[2]);
+  float logBoostR = log2(metadata->min_content_boost[0]) * (1.0f - gain.r) +
+                    log2(metadata->max_content_boost[0]) * gain.r;
+  float logBoostG = log2(metadata->min_content_boost[1]) * (1.0f - gain.g) +
+                    log2(metadata->max_content_boost[1]) * gain.g;
+  float logBoostB = log2(metadata->min_content_boost[2]) * (1.0f - gain.b) +
+                    log2(metadata->max_content_boost[2]) * gain.b;
   float gainFactorR = exp2(logBoostR);
   float gainFactorG = exp2(logBoostG);
   float gainFactorB = exp2(logBoostB);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-  if (metadata->gamma != 1.0f) {
-    gain.r = pow(gain.r, 1.0f / metadata->gamma);
-    gain.g = pow(gain.g, 1.0f / metadata->gamma);
-    gain.b = pow(gain.b, 1.0f / metadata->gamma);
-  }
-  float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
-                    log2(metadata->max_content_boost) * gain.r;
-  float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
-                    log2(metadata->max_content_boost) * gain.g;
-  float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
-                    log2(metadata->max_content_boost) * gain.b;
+  if (metadata->gamma[0] != 1.0f) gain.r = pow(gain.r, 1.0f / metadata->gamma[0]);
+  if (metadata->gamma[1] != 1.0f) gain.g = pow(gain.g, 1.0f / metadata->gamma[1]);
+  if (metadata->gamma[2] != 1.0f) gain.b = pow(gain.b, 1.0f / metadata->gamma[2]);
+  float logBoostR = log2(metadata->min_content_boost[0]) * (1.0f - gain.r) +
+                    log2(metadata->max_content_boost[0]) * gain.r;
+  float logBoostG = log2(metadata->min_content_boost[1]) * (1.0f - gain.g) +
+                    log2(metadata->max_content_boost[1]) * gain.g;
+  float logBoostB = log2(metadata->min_content_boost[2]) * (1.0f - gain.b) +
+                    log2(metadata->max_content_boost[2]) * gain.b;
   float gainFactorR = exp2(logBoostR * gainmapWeight);
   float gainFactorG = exp2(logBoostG * gainmapWeight);
   float gainFactorB = exp2(logBoostB * gainmapWeight);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata) {
-  float gainFactorR = gainLUT.getGainFactor(gain.r);
-  float gainFactorG = gainLUT.getGainFactor(gain.g);
-  float gainFactorB = gainLUT.getGainFactor(gain.b);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  float gainFactorR = gainLUT.getGainFactor(gain.r, 0);
+  float gainFactorG = gainLUT.getGainFactor(gain.g, 1);
+  float gainFactorB = gainLUT.getGainFactor(gain.b, 2);
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 // TODO: do we need something more clever for filtering either the map or images
