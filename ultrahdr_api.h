@@ -72,11 +72,13 @@
  *                                               existing API which warrants a major version update.
  *                                               But indicated as a minor update.
  *   1.3.0           1.3.0                       Some bug fixes, introduced new API.
+ *   1.4.0           1.4.0                       quality improvements, bug fixes, added new features
+ *                                               and api update.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 1
-#define UHDR_LIB_VER_MINOR 3
+#define UHDR_LIB_VER_MINOR 4
 #define UHDR_LIB_VER_PATCH 0
 
 #define UHDR_LIB_VERSION \
@@ -253,21 +255,22 @@ typedef struct uhdr_mem_block {
 
 /**\brief Gain map metadata. */
 typedef struct uhdr_gainmap_metadata {
-  float max_content_boost; /**< Value to control how much brighter an image can get, when shown on
+  float max_content_boost[3]; /**< Value to control how much brighter an image can get, when shown
+                              on an HDR display, relative to the SDR rendition. This is constant for
+                              a given image. Value MUST be in linear scale. */
+  float min_content_boost[3]; /**< Value to control how much darker an image can get, when shown on
                               an HDR display, relative to the SDR rendition. This is constant for a
                               given image. Value MUST be in linear scale. */
-  float min_content_boost; /**< Value to control how much darker an image can get, when shown on
-                              an HDR display, relative to the SDR rendition. This is constant for a
-                              given image. Value MUST be in linear scale. */
-  float gamma;             /**< Encoding Gamma of the gainmap image. */
-  float offset_sdr; /**< The offset to apply to the SDR pixel values during gainmap generation and
-                       application. */
-  float offset_hdr; /**< The offset to apply to the HDR pixel values during gainmap generation and
-                       application. */
-  float hdr_capacity_min;  /**< Minimum display boost value for which the map is applied completely.
-                              Value MUST be in linear scale. */
-  float hdr_capacity_max;  /**< Maximum display boost value for which the map is applied completely.
-                              Value MUST be in linear scale. */
+  float gamma[3];             /**< Encoding Gamma of the gainmap image. */
+  float offset_sdr[3];    /**< The offset to apply to the SDR pixel values during gainmap generation
+                          and application. */
+  float offset_hdr[3];    /**< The offset to apply to the HDR pixel values during gainmap generation
+                          and application. */
+  float hdr_capacity_min; /**< Minimum display boost value for which the map is applied completely.
+                             Value MUST be in linear scale. */
+  float hdr_capacity_max; /**< Maximum display boost value for which the map is applied completely.
+                             Value MUST be in linear scale. */
+  int use_base_cg;         /**< Is gainmap application space same as base image color space */
 } uhdr_gainmap_metadata_t; /**< alias for struct uhdr_gainmap_metadata */
 
 /**\brief ultrahdr codec context opaque descriptor */
